@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="tg">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>C++ Quiz Master - Бозии Саволу Ҷавоби C++ барои Навомузон</title>
+  <meta name="description" content="Платформаи интерактивии саволу ҷавоби C++ бо 50 савол аз 0 то cin, cout, if/else, for ва array бо рейтинги реалӣ.">
+  
+  <!-- Custom Stylesheet -->
+  <link rel="stylesheet" href="style.css">
+  
+  <!-- PeerJS CDN for WebRTC Real-Time Multiplayer Rooms -->
+  <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js" defer></script>
+  <!-- Question Bank & Main App Scripts -->
+  <script src="questions.js" defer></script>
+  <script src="app.js" defer></script>
+</head>
+<body>
+
+  <!-- Confetti Canvas overlay -->
+  <canvas id="confetti-canvas" style="position: fixed; top:0; left:0; pointer-events:none; z-index:99;"></canvas>
+
+  <!-- Sound Toggle Button -->
+  <button id="btn-sound-toggle" class="sound-toggle" title="Овоз">🔊</button>
+
+  <div class="app-container">
+    
+    <!-- Header Brand -->
+    <header class="header-brand">
+      <div class="brand-badge">⚡ Платформаи Омузиши C++</div>
+      <h1 class="brand-title">C++ Quiz Master</h1>
+      <p class="brand-subtitle">Викторинаи интерактивӣ барои донишҷӯёни навомуз (50 Саволи Осон)</p>
+    </header>
+
+    <!-- SCREEN 1: Welcome & Role Selection -->
+    <section id="screen-welcome" class="glass-card welcome-box">
+      <h2 style="text-align: center; margin-bottom: 8px;">Марҳамат! Нақши худро интихоб кунед:</h2>
+      
+      <div class="role-cards">
+        <div id="card-role-host" class="role-card active">
+          <div class="role-icon">👨‍🏫</div>
+          <h3>Музбон (Муаллим)</h3>
+          <p>Бозӣ эҷод кунед, коди ҳуҷра ё линкро ба донишҷӯён фиристед ва онро идора кунед.</p>
+        </div>
+
+        <div id="card-role-student" class="role-card">
+          <div class="role-icon">🎓</div>
+          <h3>Донишҷӯ (Иштирокчӣ)</h3>
+          <p>Бо коди ҳуҷра ё линки гирифтаатон ворид шавед ва ба саволҳо ҷавоб диҳед.</p>
+        </div>
+      </div>
+
+      <!-- Host Form -->
+      <div id="form-host" class="form-box">
+        <div class="form-group">
+          <label for="input-host-name">Ном ва насаби шумо (Муаллим):</label>
+          <input type="text" id="input-host-name" class="input-field" placeholder="Масалан: Устод Алиев" value="Устод">
+        </div>
+        <button id="btn-create-room" class="btn btn-primary">🚀 Сохтани Ҳуҷраи Бозӣ (Create Room)</button>
+      </div>
+
+      <!-- Student Form -->
+      <div id="form-student" class="form-box hidden">
+        <div class="form-group">
+          <label for="input-student-name">Ном ва насаби шумо (Донишҷӯ):</label>
+          <input type="text" id="input-student-name" class="input-field" placeholder="Масалан: Сомони Муҳаммад">
+        </div>
+        <div class="form-group">
+          <label for="input-room-code">Коди Ҳуҷра (Room Code):</label>
+          <input type="text" id="input-room-code" class="input-field" placeholder="Масалан: CPP-8492" style="font-family: var(--font-mono); text-transform: uppercase;">
+        </div>
+        <button id="btn-join-room" class="btn btn-success">🎮 Ворид шудан ба Бозӣ (Join Game)</button>
+      </div>
+    </section>
+
+    <!-- SCREEN 2: Lobby Screen -->
+    <section id="screen-lobby" class="glass-card hidden">
+      <h2 style="text-align: center;">Ҳуҷраи Интизорӣ (Lobby)</h2>
+      
+      <div class="room-share-box">
+        <p style="color: var(--text-muted);">Коди Ҳуҷраи шумо барои донишҷӯён:</p>
+        <div id="display-room-code" class="room-code-badge">CPP-0000</div>
+        <button id="btn-copy-link" class="copy-link-btn">🔗 Линка Нусхабардорӣ КУН (Copy Link)</button>
+      </div>
+
+      <div style="margin-top: 24px;">
+        <h3>Иштирокчиёни пайвастшуда (<span id="participant-count">0</span>):</h3>
+        <div id="participants-grid" class="participants-grid">
+          <!-- Dynamically filled with participant chips -->
+        </div>
+      </div>
+
+      <!-- Host Control Panel in Lobby -->
+      <div id="host-controls" class="hidden" style="margin-top: 24px;">
+        <button id="btn-start-game" class="btn btn-primary">▶️ ОҒОЗИ БОЗӢ (Start Quiz)</button>
+      </div>
+
+      <!-- Student Waiting Notice -->
+      <div id="student-lobby-msg" class="hidden" style="text-align: center; margin-top: 24px; color: var(--accent-cyan); font-weight: 600;">
+        <p>⏳ Мунтазири оғози бозӣ аз тарафи муаллим бошед...</p>
+      </div>
+    </section>
+
+    <!-- SCREEN 3: Quiz Gameplay Screen -->
+    <section id="screen-quiz" class="glass-card hidden">
+      <!-- Quiz Header -->
+      <div class="quiz-header">
+        <div>
+          <span id="q-counter" class="question-counter">Саволи 1 аз 50</span>
+          <span id="q-category" class="category-tag">Асосҳои C++</span>
+        </div>
+        <div id="timer-box" class="timer-box">
+          <span>⏱️</span>
+          <span id="timer-display">20</span>
+        </div>
+      </div>
+
+      <!-- Progress Bar -->
+      <div class="progress-bar-container">
+        <div id="progress-bar-fill" class="progress-bar-fill"></div>
+      </div>
+
+      <!-- Question Content -->
+      <h2 id="q-title" class="question-title">Савол дар ин ҷо пайдо мешавад...</h2>
+      
+      <!-- C++ Code Snippet Box (if applicable) -->
+      <pre id="q-code" class="code-block hidden"></pre>
+
+      <!-- 4 Multiple Choice Options Grid -->
+      <div id="options-grid" class="options-grid">
+        <!-- 4 Option Buttons dynamically generated -->
+      </div>
+
+      <!-- Explanation Box -->
+      <div id="explanation-box" class="explanation-box hidden"></div>
+
+      <!-- Host Next Question Control -->
+      <div id="host-quiz-controls" class="hidden" style="margin-top: 20px;">
+        <button id="btn-next-question" class="btn btn-primary">Саволи Навбатӣ ➔</button>
+      </div>
+    </section>
+
+    <!-- SCREEN 4: Final Leaderboard & Rating Screen -->
+    <section id="screen-leaderboard" class="glass-card hidden">
+      <div style="text-align: center;">
+        <div style="font-size: 3rem;">🏆</div>
+        <h2 class="leaderboard-title">Ҷадвали Рейтинг ва Ғолибон</h2>
+        <p style="color: var(--text-muted);">Натиҷаҳои финалии викторинаи C++</p>
+      </div>
+
+      <!-- Top 3 Podium (🥇 🥈 🥉) -->
+      <div id="podium-container" class="podium-container">
+        <!-- Generated dynamically -->
+      </div>
+
+      <!-- Standings Table -->
+      <table class="ranking-table">
+        <thead>
+          <tr>
+            <th>Ҷой</th>
+            <th>Донишҷӯ</th>
+            <th>Балҳо</th>
+            <th>Саволҳои Дуруст</th>
+          </tr>
+        </thead>
+        <tbody id="rankings-table-body">
+          <!-- Generated dynamically -->
+        </tbody>
+      </table>
+
+      <div style="margin-top: 32px;">
+        <button id="btn-restart-game" class="btn btn-secondary">🔄 Бозии Нав (New Game)</button>
+      </div>
+    </section>
+
+  </div>
+
+</body>
+</html>
