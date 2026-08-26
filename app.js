@@ -55,6 +55,24 @@ const LETTERS = ['A', 'B', 'C', 'D'];
 const CHANNEL = 'cpp_quiz_channel';
 const LS_KEY = 'cpp_quiz_event';
 
+/**
+ * Серверҳои ICE.
+ * Танҳо STUN кофӣ НЕСТ: донишҷӯёне, ки бо интернети мобилӣ (4G/5G) ҳастанд,
+ * пушти NAT-и симметрӣ мемонанд ва пайвасти мустақим сохта наметавонанд.
+ * TURN трафикро аз худ мегузаронад ва чунин донишҷӯёнро низ мепайвандад.
+ */
+const ICE_CONFIG = {
+  iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
+    { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
+    { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' }
+  ]
+};
+const PEER_OPTS = { config: ICE_CONFIG };
+const HOST_PEER_PREFIX = 'cpp-quiz-';
+
 /* ------------------------------------------------------------------ */
 /*  Ёридиҳандаҳо                                                       */
 /* ------------------------------------------------------------------ */
@@ -151,76 +169,143 @@ function send(msg) {
   try { localStorage.setItem(LS_KEY, JSON.stringify({ ...msg, _t: Date.now() })); } catch (e) {}
 }
 
+/**
+ * Ҳуҷраи муаллим дар сервери PeerJS.
+ *
+ * МУҲИМ: соединенияи муаллим бо сервери PeerJS вақт-вақт канда мешавад
+ * (интернети суст, экрани хомӯшшуда, таймаути сервер). Дар он лаҳза
+ * донишҷӯёни аллакай пайвастшуда кор мекунанд (алоқаи мустақим), вале
+ * коди ҳуҷра дар сервер нест мешавад ва донишҷӯёни НАВ ҳуҷраро ёфта
+ * наметавонанд. Барои ҳамин мо ҳатман reconnect мекунем.
+ */
 function initPeerHost() {
   if (typeof Peer === 'undefined') return;
   try {
-    S.peer = new Peer('cpp-quiz-' + S.roomCode);
-    S.peer.on('open', () => console.log('[host] peer ready'));
+    S.peer = new Peer(HOST_PEER_PREFIX + S.roomCode, PEER_OPTS);
+
+    S.peer.on('open', () => {
+      S.peerEverOpened = true;
+      setNetState(true, 'Ҳуҷра фаъол — донишҷӯён ворид шуда метавонанд');
+    });
+
     S.peer.on('connection', (conn) => {
+      // Пайвасти кӯҳнаи ҳамон донишҷӯро мебандем, то нусхаи мурда намонад.
+      S.connections = S.connections.filter((c) => {
+        if (c.peer === conn.peer) { try { c.close(); } catch (e) {} return false; }
+        return true;
+      });
       S.connections.push(conn);
       conn.on('data', (d) => handleNetworkMessage(d));
       conn.on('close', () => { S.connections = S.connections.filter((c) => c !== conn); });
+      conn.on('error', () => { S.connections = S.connections.filter((c) => c !== conn); });
       conn.on('open', () => sendStateSnapshot());
     });
+
+    // Алоқа бо сервер канда шуд — фавран барқарор мекунем.
+    S.peer.on('disconnected', () => {
+      setNetState(false, 'Алоқа бо сервер канда шуд — барқарорсозӣ...');
+      setTimeout(() => {
+        if (S.peer && !S.peer.destroyed && S.peer.disconnected) {
+          try { S.peer.reconnect(); } catch (e) {}
+        }
+      }, 1000);
+    });
+
+    // Peer тамоман пӯшида шуд — аз нав месозем (бо ҲАМОН коди ҳуҷра).
+    S.peer.on('close', () => {
+      setNetState(false, 'Ҳуҷра аз нав сохта мешавад...');
+      setTimeout(() => { if (S.role === 'host') initPeerHost(); }, 2000);
+    });
+
     S.peer.on('error', (err) => {
-      // Агар чунин коди ҳуҷра аллакай банд бошад — коди навро месозем.
-      if (err.type === 'unavailable-id' && !S.idRetried) {
-        S.idRetried = true;
-        try { S.peer.destroy(); } catch (e2) {}
-        S.roomCode = generateRoomCode();
-        $('display-room-code').textContent = S.roomCode;
-        window.history.replaceState({}, '',
-          `${window.location.origin}${window.location.pathname}?room=${S.roomCode}`);
-        toast('Коди ҳуҷра нав карда шуд: ' + S.roomCode, 'warn');
-        initPeerHost();
+      if (err.type === 'unavailable-id') {
+        if (!S.peerEverOpened && !S.idRetried) {
+          // Ҳангоми сохтани ҳуҷра чунин код банд буд — коди нав мегирем.
+          S.idRetried = true;
+          try { S.peer.destroy(); } catch (e) {}
+          S.roomCode = generateRoomCode();
+          $('display-room-code').textContent = S.roomCode;
+          window.history.replaceState({}, '',
+            `${window.location.origin}${window.location.pathname}?room=${S.roomCode}`);
+          toast('Коди ҳуҷра нав карда шуд: ' + S.roomCode, 'warn');
+          initPeerHost();
+        } else {
+          // Барқарорсозӣ: сервер ҳанӯз коди кӯҳнаро нигоҳ дошта истодааст.
+          // Коди ҳуҷраро ИВАЗ НАМЕКУНЕМ — линки донишҷӯён бояд кор кунад.
+          try { S.peer.destroy(); } catch (e) {}
+          setTimeout(() => { if (S.role === 'host') initPeerHost(); }, 3000);
+        }
+        return;
+      }
+      if (err.type === 'network' || err.type === 'server-error' || err.type === 'socket-error') {
+        setNetState(false, 'Мушкили шабака — барқарорсозӣ...');
+        try { S.peer.destroy(); } catch (e) {}
+        setTimeout(() => { if (S.role === 'host') initPeerHost(); }, 2500);
         return;
       }
       console.warn('[host] peer error', err.type);
     });
+
+    // Посбон: ҳар 5 сония ҳолати алоқаро месанҷад.
+    if (!S.hostWatchdog) {
+      S.hostWatchdog = setInterval(() => {
+        if (S.role !== 'host') return;
+        if (!S.peer || S.peer.destroyed) { initPeerHost(); return; }
+        if (S.peer.disconnected) {
+          setNetState(false, 'Алоқа бо сервер канда шуд — барқарорсозӣ...');
+          try { S.peer.reconnect(); } catch (e) {}
+        } else if (S.peer.open) {
+          setNetState(true, 'Ҳуҷра фаъол — донишҷӯён ворид шуда метавонанд');
+        }
+      }, 5000);
+    }
   } catch (e) {
     console.warn('PeerJS host init failed', e);
   }
 }
 
-function initPeerStudent() {
-  if (typeof Peer !== 'undefined') {
-    try {
-      S.peer = new Peer();
-      S.peer.on('open', () => {
-        const conn = S.peer.connect('cpp-quiz-' + S.roomCode, { reliable: true });
-        S.hostConn = conn;
-        conn.on('open', () => { sendJoin(); });
-        conn.on('data', (d) => handleNetworkMessage(d));
-        conn.on('close', () => showConnState('Пайваст бо муаллим қатъ шуд — кӯшиши барқарорсозӣ...', false));
-      });
-      S.peer.on('error', (err) => {
-        if (err.type === 'peer-unavailable' && !S.participants.some((p) => p.id === S.myId)) {
-          showConnState('Ҳуҷра ёфт нашуд — коди ҳуҷраро тафтиш кунед', false);
-        }
-        console.warn('[student] peer error', err.type);
-      });
-    } catch (e) {
-      console.warn('PeerJS student init failed', e);
-    }
-  }
+/** Нишондиҳандаи ҳолати алоқа (ҳам барои муаллим, ҳам донишҷӯ). */
+function setNetState(ok, text) {
+  const prev = S.netOk;
+  S.netOk = ok;
+  showConnState(text, ok);
+  if (prev === true && ok === false) toast(text, 'warn');
+  if (prev === false && ok === true) toast('Алоқа барқарор шуд ✓', 'ok');
+}
 
-  sendJoin();
+/**
+ * Тарафи донишҷӯ.
+ * Пештар як кӯшиши нобарор кофӣ буд, ки донишҷӯ то охири дарс беалоқа монад:
+ * такрор танҳо JOIN мефиристод, вале худи пайвастро аз нав намесохт.
+ * Ҳоло пайваст беохир (бо таваққуфи зиёдшаванда) барқарор карда мешавад —
+ * ҳам дар лобби, ҳам дар мобайни бозӣ.
+ */
+function initPeerStudent() {
+  createStudentPeer();
+  sendJoin(); // фавран — то ки дар як браузер (BroadcastChannel) дарҳол пайдо шавад
+
   let tries = 0;
   S.joinRetry = setInterval(() => {
+    if (S.role !== 'student') return;
+
+    const linked = S.hostConn && S.hostConn.open;
+    const known = S.participants.some((p) => p.id === S.myId);
+
+    if (linked && known) {
+      tries = 0;
+      if (!S.netOk) setNetState(true, 'Пайваст фаъол');
+      return;
+    }
+
     tries++;
-    if (S.phase !== 'idle' && S.phase !== 'lobby') { clearInterval(S.joinRetry); return; }
-    if (S.participants.some((p) => p.id === S.myId)) {
-      showConnState('Пайваст барқарор шуд ✓', true);
-      clearInterval(S.joinRetry);
-      return;
-    }
-    if (tries > 25) {
-      clearInterval(S.joinRetry);
-      showConnState('Муаллим ёфт нашуд. Коди ҳуҷраро тафтиш кунед.', false);
-      return;
-    }
+    connectToHost();
     sendJoin();
-  }, 1500);
+
+    if (tries === 6) showConnState('Ҳуҷра ёфт нашудааст — кӯшиш идома дорад...', false);
+    if (tries > 20 && tries % 10 === 0) {
+      showConnState('Пайваст барқарор намешавад. Интернетро санҷед ё саҳифаро нав кунед.', false);
+    }
+  }, 2000);
 
   setInterval(() => {
     if (S.role !== 'student' || S.phase === 'idle') return;
@@ -239,6 +324,74 @@ function initPeerStudent() {
       toast('Пайваст барқарор шуд', 'ok');
     }
   }, 5000);
+}
+
+function createStudentPeer() {
+  if (typeof Peer === 'undefined') return;
+  try {
+    S.peer = new Peer(PEER_OPTS);
+
+    S.peer.on('open', () => connectToHost());
+
+    S.peer.on('disconnected', () => {
+      setNetState(false, 'Алоқа канда шуд — барқарорсозӣ...');
+      try { S.peer.reconnect(); } catch (e) {}
+    });
+
+    S.peer.on('close', () => {
+      S.hostConn = null;
+      setTimeout(() => { if (S.role === 'student') createStudentPeer(); }, 2000);
+    });
+
+    S.peer.on('error', (err) => {
+      // 'peer-unavailable' = ҳуҷраи муаллим ҳанӯз дар сервер нест.
+      // Ин хатои марговар нест — такрор мекунем.
+      if (err.type === 'peer-unavailable') { S.hostConn = null; return; }
+      if (err.type === 'network' || err.type === 'server-error' || err.type === 'socket-error') {
+        S.hostConn = null;
+        try { S.peer.destroy(); } catch (e) {}
+        setTimeout(() => { if (S.role === 'student') createStudentPeer(); }, 2500);
+        return;
+      }
+      console.warn('[student] peer error', err.type);
+    });
+  } catch (e) {
+    console.warn('PeerJS student init failed', e);
+  }
+}
+
+/** Пайвасти нав ба муаллим, агар пайвасти ҷорӣ мурда бошад. */
+function connectToHost() {
+  if (typeof Peer === 'undefined' || !S.peer) return;
+  if (S.peer.destroyed) { createStudentPeer(); return; }
+  if (S.peer.disconnected) { try { S.peer.reconnect(); } catch (e) {} return; }
+  if (!S.peer.open) return;
+  if (S.hostConn && S.hostConn.open) return;
+  if (S.connecting && Date.now() - S.connecting < 6000) return;
+
+  S.connecting = Date.now();
+  try {
+    const conn = S.peer.connect(HOST_PEER_PREFIX + S.roomCode, { reliable: true });
+    if (!conn) return;
+    conn.on('open', () => {
+      S.connecting = 0;
+      S.hostConn = conn;
+      setNetState(true, 'Пайваст бо муаллим барқарор шуд');
+      sendJoin();
+      send({ type: 'SYNC_REQ', studentId: S.myId });
+    });
+    conn.on('data', (d) => handleNetworkMessage(d));
+    conn.on('close', () => {
+      if (S.hostConn === conn) S.hostConn = null;
+      setNetState(false, 'Пайваст бо муаллим қатъ шуд — барқарорсозӣ...');
+    });
+    conn.on('error', () => {
+      if (S.hostConn === conn) S.hostConn = null;
+      S.connecting = 0;
+    });
+  } catch (e) {
+    S.connecting = 0;
+  }
 }
 
 function sendJoin() {
@@ -633,9 +786,10 @@ function updateParticipantsUI() {
 function studentOnRoster(msg) {
   S.participants = msg.participants || [];
   updateParticipantsUI();
-  if (S.participants.some((p) => p.id === S.myId)) {
-    showConnState('Пайваст фаъол — мунтазири муаллим', true);
-    if (S.joinRetry) { clearInterval(S.joinRetry); S.joinRetry = null; }
+  // Диққат: ҳалқаи такрорро НАМЕбандем — агар алоқа баъдтар канда шавад,
+  // худи ҳамон ҳалқа пайвастро барқарор мекунад.
+  if (S.participants.some((p) => p.id === S.myId) && !S.netOk) {
+    setNetState(true, 'Пайваст фаъол');
   }
 }
 
