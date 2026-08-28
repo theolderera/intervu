@@ -26,6 +26,11 @@ const S = {
   connections: [],       // host → students
   hostConn: null,        // student → host
 
+  relay: null,           // канали эҳтиётии WebSocket (кор мекунад, ҳатто агар WebRTC нашавад)
+  relayOk: false,
+  relayIdx: 0,
+  relayTries: 0,
+
   participants: [],      // host: манбаи ҳақиқат
   order: [],             // тартиби индексҳои саволҳо
   phase: 'idle',         // idle | lobby | question | reveal | ended
@@ -65,13 +70,36 @@ const ICE_CONFIG = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
-    { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
-    { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
-    { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' }
-  ]
+    { urls: 'stun:stun.cloudflare.com:3478' },
+    { urls: 'turn:staticauth.openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
+    { urls: 'turn:staticauth.openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
+    { urls: 'turn:staticauth.openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' },
+    { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' }
+  ],
+  iceCandidatePoolSize: 2
 };
 const PEER_OPTS = { config: ICE_CONFIG };
 const HOST_PEER_PREFIX = 'cpp-quiz-';
+
+/**
+ * РЕЛЕИ ЭҲТИЁТӢ — сабаби асосии «загрузкаи беохир».
+ *
+ * WebRTC ҳамеша роҳи мустақим сохта наметавонад: донишҷӯёне, ки бо интернети
+ * мобилӣ (4G/5G) ё Wi-Fi-и мактаб ҳастанд, пушти NAT-и симметрӣ мемонанд.
+ * Барои ҳамин танҳо 3–4 нафар (одатан онҳое, ки дар як шабака буданд) ворид
+ * мешуданд, боқимонда то охир дар «Пайвастшавӣ...» мемонданд.
+ *
+ * Ҳал: ба ғайр аз WebRTC ҳамаи паёмҳо аз як канали оддии WebSocket низ
+ * мегузаранд. Ин трафики муқаррарии wss (443/8084) аст — аз ҳар оператор ва
+ * ҳар firewall мегузарад ва ба NAT тамоман вобаста нест. Ду роҳ ҳамзамон кор
+ * мекунанд, такрори паёмҳо бо `msg.mid` бартараф мешавад.
+ */
+const RELAY_BROKERS = [
+  'wss://broker.emqx.io:8084/mqtt',
+  'wss://broker.hivemq.com:8884/mqtt',
+  'wss://test.mosquitto.org:8081/mqtt'
+];
+const RELAY_PREFIX = 'cppquiz/v1/';
 
 /* ------------------------------------------------------------------ */
 /*  Ёридиҳандаҳо                                                       */
@@ -158,6 +186,7 @@ function send(msg) {
   msg.room = S.roomCode;
   msg.mid = msg.mid || uid('m');
   S.seenMsgs.add(msg.mid);
+  if (S.seenMsgs.size > 500) S.seenMsgs = new Set([...S.seenMsgs].slice(-200));
 
   if (S.role === 'host') {
     S.connections.forEach((c) => { if (c.open) { try { c.send(msg); } catch (e) {} } });
@@ -165,8 +194,91 @@ function send(msg) {
     try { S.hostConn.send(msg); } catch (e) {}
   }
 
+  relaySend(msg);
+
   if (bc) { try { bc.postMessage(msg); } catch (e) {} }
   try { localStorage.setItem(LS_KEY, JSON.stringify({ ...msg, _t: Date.now() })); } catch (e) {}
+}
+
+/** Ҳамаи паёмҳо ҳамзамон аз релеи WebSocket низ мераванд. */
+function relaySend(msg) {
+  if (!S.relay || !S.relayOk) return;
+  try {
+    S.relay.publish(relayTopics().pub, JSON.stringify(msg), { qos: 0 });
+  } catch (e) {}
+}
+
+/**
+ * Мавзӯъҳо: муаллим ба `/h` менависад ва аз `/s` мехонад, донишҷӯ баръакс.
+ * Ҳамин тавр донишҷӯён паёмҳои ҳамдигарро бекора қабул намекунанд.
+ */
+function relayTopics() {
+  const base = RELAY_PREFIX + S.roomCode;
+  return S.role === 'host'
+    ? { pub: base + '/h', sub: base + '/s' }
+    : { pub: base + '/s', sub: base + '/h' };
+}
+
+/** Оё ҳадди ақал як роҳи корӣ ба муаллим ҳаст? */
+function linkUp() {
+  return !!((S.hostConn && S.hostConn.open) || S.relayOk);
+}
+
+function initRelay() {
+  if (typeof mqtt === 'undefined' || !S.roomCode || !S.role) return;
+  if (S.relay) { try { S.relay.end(true); } catch (e) {} S.relay = null; }
+  S.relayOk = false;
+
+  const url = RELAY_BROKERS[S.relayIdx % RELAY_BROKERS.length];
+  let client;
+  try {
+    client = mqtt.connect(url, {
+      clientId: 'cq_' + Math.random().toString(16).slice(2, 10) + Date.now().toString(36).slice(-4),
+      protocolVersion: 4,
+      clean: true,
+      keepalive: 25,
+      connectTimeout: 8000,
+      reconnectPeriod: 3000
+    });
+  } catch (e) {
+    return;
+  }
+  S.relay = client;
+  const topics = relayTopics();
+
+  // Агар ин брокер дар 9 сония ҷавоб надиҳад — ба брокери дигар мегузарем.
+  const failover = setTimeout(() => {
+    if (client !== S.relay || S.relayOk) return;
+    try { client.end(true); } catch (e) {}
+    S.relayIdx++;
+    S.relayTries++;
+    if (S.relayTries <= 9) initRelay();
+  }, 9000);
+
+  client.on('connect', () => {
+    if (client !== S.relay) { try { client.end(true); } catch (e) {} return; }
+    clearTimeout(failover);
+    S.relayOk = true;
+    S.relayTries = 0;
+    client.subscribe(topics.sub, { qos: 0 }, () => {
+      if (S.role === 'host') {
+        setNetState(true, 'Ҳуҷра фаъол — донишҷӯён ворид шуда метавонанд');
+        scheduleSnapshot();
+      } else {
+        sendJoin();
+        send({ type: 'SYNC_REQ', studentId: S.myId });
+      }
+    });
+  });
+
+  client.on('message', (topic, payload) => {
+    if (client !== S.relay) return;
+    try { handleNetworkMessage(JSON.parse(payload.toString())); } catch (e) {}
+  });
+
+  client.on('close', () => { if (client === S.relay) S.relayOk = false; });
+  client.on('offline', () => { if (client === S.relay) S.relayOk = false; });
+  client.on('error', () => { if (client === S.relay) S.relayOk = false; });
 }
 
 /**
@@ -198,7 +310,7 @@ function initPeerHost() {
       conn.on('data', (d) => handleNetworkMessage(d));
       conn.on('close', () => { S.connections = S.connections.filter((c) => c !== conn); });
       conn.on('error', () => { S.connections = S.connections.filter((c) => c !== conn); });
-      conn.on('open', () => sendStateSnapshot());
+      conn.on('open', () => scheduleSnapshot());
     });
 
     // Алоқа бо сервер канда шуд — фавран барқарор мекунем.
@@ -229,6 +341,7 @@ function initPeerHost() {
             `${window.location.origin}${window.location.pathname}?room=${S.roomCode}`);
           toast('Коди ҳуҷра нав карда шуд: ' + S.roomCode, 'warn');
           initPeerHost();
+          initRelay(); // коди ҳуҷра дигар шуд — мавзӯи релей ҳам бояд дигар шавад
         } else {
           // Барқарорсозӣ: сервер ҳанӯз коди кӯҳнаро нигоҳ дошта истодааст.
           // Коди ҳуҷраро ИВАЗ НАМЕКУНЕМ — линки донишҷӯён бояд кор кунад.
@@ -250,11 +363,17 @@ function initPeerHost() {
     if (!S.hostWatchdog) {
       S.hostWatchdog = setInterval(() => {
         if (S.role !== 'host') return;
+
+        // Релей аз нав пайваст мешавад, агар канда шуда бошад.
+        if (!S.relay && typeof mqtt !== 'undefined') initRelay();
+
         if (!S.peer || S.peer.destroyed) { initPeerHost(); return; }
         if (S.peer.disconnected) {
-          setNetState(false, 'Алоқа бо сервер канда шуд — барқарорсозӣ...');
           try { S.peer.reconnect(); } catch (e) {}
-        } else if (S.peer.open) {
+          // Агар релей кор кунад, ҳуҷра ҳанӯз ҳам зинда аст — беҳуда натарсонем.
+          if (!S.relayOk) setNetState(false, 'Алоқа бо сервер канда шуд — барқарорсозӣ...');
+          else setNetState(true, 'Ҳуҷра фаъол — донишҷӯён ворид шуда метавонанд');
+        } else if (S.peer.open || S.relayOk) {
           setNetState(true, 'Ҳуҷра фаъол — донишҷӯён ворид шуда метавонанд');
         }
       }, 5000);
@@ -288,7 +407,9 @@ function initPeerStudent() {
   S.joinRetry = setInterval(() => {
     if (S.role !== 'student') return;
 
-    const linked = S.hostConn && S.hostConn.open;
+    // Ҳар ду роҳ (WebRTC ё релей) кофист — набояд танҳо WebRTC-ро интизор шавем,
+    // вагарна донишҷӯи мобилӣ то охир дар «загрузка» мемонад.
+    const linked = linkUp();
     const known = S.participants.some((p) => p.id === S.myId);
 
     if (linked && known) {
@@ -298,6 +419,7 @@ function initPeerStudent() {
     }
 
     tries++;
+    if (!S.relay && typeof mqtt !== 'undefined') initRelay();
     connectToHost();
     sendJoin();
 
@@ -334,7 +456,7 @@ function createStudentPeer() {
     S.peer.on('open', () => connectToHost());
 
     S.peer.on('disconnected', () => {
-      setNetState(false, 'Алоқа канда шуд — барқарорсозӣ...');
+      if (!S.relayOk) setNetState(false, 'Алоқа канда шуд — барқарорсозӣ...');
       try { S.peer.reconnect(); } catch (e) {}
     });
 
@@ -370,11 +492,18 @@ function connectToHost() {
   if (S.connecting && Date.now() - S.connecting < 6000) return;
 
   S.connecting = Date.now();
+
+  // Кӯшиши пешинаи нобарор бояд пӯшида шавад: вагарна ҳар 6 сония як
+  // RTCPeerConnection-и мурда ҷамъ мешуд ва браузери телефон банд мемонд.
+  if (S.pendingConn) { try { S.pendingConn.close(); } catch (e) {} S.pendingConn = null; }
+
   try {
     const conn = S.peer.connect(HOST_PEER_PREFIX + S.roomCode, { reliable: true });
-    if (!conn) return;
+    if (!conn) { S.connecting = 0; return; }
+    S.pendingConn = conn;
     conn.on('open', () => {
       S.connecting = 0;
+      if (S.pendingConn === conn) S.pendingConn = null;
       S.hostConn = conn;
       setNetState(true, 'Пайваст бо муаллим барқарор шуд');
       sendJoin();
@@ -383,10 +512,13 @@ function connectToHost() {
     conn.on('data', (d) => handleNetworkMessage(d));
     conn.on('close', () => {
       if (S.hostConn === conn) S.hostConn = null;
-      setNetState(false, 'Пайваст бо муаллим қатъ шуд — барқарорсозӣ...');
+      if (S.pendingConn === conn) S.pendingConn = null;
+      // Агар релей кор кунад, бозӣ давом дорад — донишҷӯро бе сабаб натарсонем.
+      if (!linkUp()) setNetState(false, 'Пайваст бо муаллим қатъ шуд — барқарорсозӣ...');
     });
     conn.on('error', () => {
       if (S.hostConn === conn) S.hostConn = null;
+      if (S.pendingConn === conn) S.pendingConn = null;
       S.connecting = 0;
     });
   } catch (e) {
@@ -427,7 +559,7 @@ function handleNetworkMessage(msg) {
       case 'JOIN':      return hostOnJoin(msg);
       case 'ANSWER':    return hostOnAnswer(msg);
       case 'HEARTBEAT': return hostOnHeartbeat(msg);
-      case 'SYNC_REQ':  return sendStateSnapshot();
+      case 'SYNC_REQ':  return scheduleSnapshot();
     }
     return;
   }
@@ -594,6 +726,7 @@ function createRoom() {
   updateParticipantsUI();
 
   initPeerHost();
+  initRelay();
 
   const url = `${window.location.origin}${window.location.pathname}?room=${S.roomCode}`;
   window.history.replaceState({}, '', url);
@@ -649,6 +782,7 @@ function joinRoom(rawName, rawRoom) {
   show($('student-lobby-msg'), true);
   showConnState('Пайвастшавӣ ба ҳуҷра...', false);
 
+  initRelay();
   initPeerStudent();
 }
 
@@ -685,7 +819,7 @@ function hostOnJoin(msg) {
 
   updateParticipantsUI();
   updateAdminPanel();
-  sendStateSnapshot();
+  sendStateSnapshot(); // вуруди нав — ҳама бояд фавран бинанд
 }
 
 function hostOnHeartbeat(msg) {
@@ -728,6 +862,30 @@ function rosterPayload() {
 
 function broadcastRoster() {
   send({ type: 'ROSTER', participants: rosterPayload(), phase: S.phase });
+}
+
+/**
+ * Ҳангоми оғози дарс даҳҳо донишҷӯ якбора пайваст мешаванд ва ҳар кадом
+ * SYNC_REQ мефиристад. Агар ба ҳар яке алоҳида snapshot фиристем, канал банд
+ * мешавад ва вурудҳои нав ҷой намемонанд. Дархостҳои такрориро дар 400 мс
+ * ҷамъ карда, ЯК snapshot мефиристем (аввалинаш — фавран).
+ */
+function scheduleSnapshot() {
+  if (S.role !== 'host') return;
+  const now = Date.now();
+  const wait = 400 - (now - (S.lastSnapshotAt || 0));
+
+  if (wait <= 0) {
+    S.lastSnapshotAt = now;
+    sendStateSnapshot();
+    return;
+  }
+  if (S.snapshotTimer) return;
+  S.snapshotTimer = setTimeout(() => {
+    S.snapshotTimer = null;
+    S.lastSnapshotAt = Date.now();
+    sendStateSnapshot();
+  }, wait);
 }
 
 /** Ба донишҷӯи нав/бозпайвастшуда ҳолати ҷориро мефиристад. */
