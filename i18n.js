@@ -69,6 +69,12 @@ const I18N = {
 
     /* --- Викторина --- */
     'q.counter': 'Саволи {n} аз {t}',
+
+    /* --- Дастрасӣ (танҳо барои screen reader) --- */
+    'a11y.welcome': 'Вуруд ба бозӣ',
+    'a11y.options': 'Вариантҳои ҷавоб',
+    'a11y.option': 'Варианти {l}: {x}',
+    'a11y.answered': 'Ҷавоб доданд: {n} аз {t}',
     'admin.title': '🛡️ Панели назорат',
     'stat.online': 'Онлайн',
     'stat.answered': 'Ҷавоб дод',
@@ -214,6 +220,12 @@ const I18N = {
     'student.waiting': 'Ожидайте начала игры от учителя...',
 
     'q.counter': 'Вопрос {n} из {t}',
+
+    /* --- Доступность (только для программ чтения с экрана) --- */
+    'a11y.welcome': 'Вход в игру',
+    'a11y.options': 'Варианты ответа',
+    'a11y.option': 'Вариант {l}: {x}',
+    'a11y.answered': 'Ответили: {n} из {t}',
     'admin.title': '🛡️ Панель управления',
     'stat.online': 'Онлайн',
     'stat.answered': 'Ответили',
@@ -364,7 +376,11 @@ function applyI18n(root) {
     if (document.documentElement) document.documentElement.lang = LANG === 'ru' ? 'ru' : 'tg';
     document.title = t('doc.title');
     document.querySelectorAll('[data-lang-btn]').forEach((b) => {
-      b.classList.toggle('active', b.getAttribute('data-lang-btn') === LANG);
+      const on = b.getAttribute('data-lang-btn') === LANG;
+      b.classList.toggle('active', on);
+      // Ҳолати ARIA бояд ҳамроҳи класс нав шавад — вагарна screen reader
+      // пас аз иваз кардани забон ҳанӯз забони кӯҳнаро эълон мекунад.
+      b.setAttribute('aria-pressed', String(on));
     });
   }
 }

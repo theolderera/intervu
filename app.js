@@ -152,6 +152,37 @@ function escapeHtml(str) {
   ));
 }
 
+/**
+ * Рақамро бо формати забони ҷорӣ бармегардонад.
+ * Агар локал дастгирӣ нашавад — бе кафидан ба сатри оддӣ бармегардад.
+ */
+function fmtNum(n) {
+  const num = Number(n);
+  if (!Number.isFinite(num)) return String(n);
+  let loc = 'tg-TJ';
+  try { if (typeof getLang === 'function' && getLang() === 'ru') loc = 'ru-RU'; } catch (e) {}
+  try {
+    return num.toLocaleString(loc);
+  } catch (e) {
+    try { return num.toLocaleString(); } catch (e2) { return String(num); }
+  }
+}
+
+/** Атрибутро бехатар мегузорад (муҳити санҷишӣ DOM-и пурра надорад). */
+function attr(el, key, val) {
+  if (el && typeof el.setAttribute === 'function') el.setAttribute(key, String(val));
+}
+
+/** `closest` бехатар. */
+function closestEl(el, sel) {
+  return el && typeof el.closest === 'function' ? el.closest(sel) : null;
+}
+
+/** Эмодзии зиннатӣ — барои screen reader пинҳон. */
+function deco(sym) {
+  return `<span aria-hidden="true">${escapeHtml(sym)}</span>`;
+}
+
 function uid(prefix) {
   return prefix + '_' + Math.random().toString(36).slice(2, 9) + Date.now().toString(36).slice(-4);
 }
@@ -167,6 +198,15 @@ function toast(text, kind) {
   t.className = 'toast ' + (kind || 'info');
   t.textContent = text;
   stack.appendChild(t);
+  // Стекро маҳдуд мекунем: 50 ҳодисаи вуруд набояд экранро пӯшонад.
+  const MAX_TOASTS = 3;
+  const live = Array.from(stack.children || [])
+    .filter((c) => c.classList && c.classList.contains('toast') && !c.classList.contains('out'));
+  for (let i = 0; i < live.length - MAX_TOASTS; i++) {
+    const old = live[i];
+    old.classList.add('out');
+    setTimeout(() => old.remove(), 300);
+  }
   setTimeout(() => {
     t.classList.add('out');
     setTimeout(() => t.remove(), 300);
@@ -619,8 +659,12 @@ function showConnState(text, ok) {
   const el = $('student-conn-state');
   if (!el) return;
   el.classList.remove('hidden');
-  el.innerHTML = ok ? '✓ ' + escapeHtml(text) : '<span class="spinner"></span> ' + escapeHtml(text);
+  attr(el, 'aria-live', 'polite');
+  el.innerHTML = ok
+    ? deco('✓') + ' ' + escapeHtml(text)
+    : '<span class="skeleton" aria-hidden="true"></span><span class="spinner" aria-hidden="true"></span> ' + escapeHtml(text);
   el.classList.toggle('ok', !!ok);
+  el.classList.toggle('is-loading', !ok);
 }
 
 /* ------------------------------------------------------------------ */
@@ -757,8 +801,20 @@ function clearQuizStorage() {
 }
 
 function initUI() {
-  $('card-role-host')?.addEventListener('click', () => selectRole('host'));
-  $('card-role-student')?.addEventListener('click', () => selectRole('student'));
+  // Кортҳои нақш `div` бо role="button" ҳастанд — клавиатура бояд кор кунад.
+  const bindRoleCard = (id, role) => {
+    const card = $(id);
+    if (!card) return;
+    card.addEventListener('click', () => selectRole(role));
+    card.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') {
+        if (e.key !== 'Enter' && typeof e.preventDefault === 'function') e.preventDefault();
+        selectRole(role);
+      }
+    });
+  };
+  bindRoleCard('card-role-host', 'host');
+  bindRoleCard('card-role-student', 'student');
 
   $('btn-create-room')?.addEventListener('click', createRoom);
   $('btn-join-room')?.addEventListener('click', () => joinRoom(
@@ -840,7 +896,10 @@ function initSegments() {
       const btn = e.target.closest('button');
       if (!btn) return;
       const prev = S.settings[key];
-      [...box.querySelectorAll('button')].forEach((b) => b.classList.toggle('active', b === btn));
+      [...box.querySelectorAll('button')].forEach((b) => {
+        b.classList.toggle('active', b === btn);
+        attr(b, 'aria-pressed', String(b === btn));
+      });
       S.settings[key] = parse(btn.dataset.val);
       if (after && S.settings[key] !== prev) after();
     });
@@ -900,6 +959,8 @@ function selectRole(role) {
   S.role = role;
   $('card-role-host')?.classList.toggle('active', role === 'host');
   $('card-role-student')?.classList.toggle('active', role === 'student');
+  attr($('card-role-host'), 'aria-pressed', String(role === 'host'));
+  attr($('card-role-student'), 'aria-pressed', String(role === 'student'));
   show($('form-host'), role === 'host');
   show($('form-student'), role === 'student');
   if (role === 'host') setTimeout(() => $('input-host-pass')?.focus(), 120);
@@ -1277,17 +1338,19 @@ function updateParticipantsUI() {
   const count = $('participant-count');
   if (!box) return;
 
-  if (count) count.textContent = S.participants.length;
-  show($('lobby-empty-msg'), S.participants.length === 0);
+  if (count) count.textContent = fmtNum(S.participants.length);
+  const emptyMsg = $('lobby-empty-msg');
+  if (emptyMsg) emptyMsg.classList.add('empty-state');
+  show(emptyMsg, S.participants.length === 0);
   box.innerHTML = '';
 
   S.participants.forEach((p) => {
     const chip = document.createElement('div');
     chip.className = 'participant-chip' + (p.online === false ? ' offline' : '');
     chip.innerHTML = `
-      <div class="participant-avatar">${escapeHtml(p.name.charAt(0).toUpperCase())}</div>
+      <div class="participant-avatar" aria-hidden="true">${escapeHtml(p.name.charAt(0).toUpperCase())}</div>
       <span class="participant-name">${escapeHtml(p.name)}</span>
-      ${S.role === 'host' ? `<button class="kick-btn" title="${escapeHtml(t('title.kick'))}" data-id="${escapeHtml(p.id)}">✕</button>` : ''}
+      ${S.role === 'host' ? `<button class="kick-btn" title="${escapeHtml(t('title.kick'))}" aria-label="${escapeHtml(t('title.kick'))}" data-id="${escapeHtml(p.id)}">${deco('✕')}</button>` : ''}
     `;
     const kick = chip.querySelector('.kick-btn');
     if (kick) kick.addEventListener('click', () => hostKick(p.id));
@@ -1309,7 +1372,7 @@ function studentOnKick(msg) {
   if (msg.studentId !== S.myId) return;
   clearInterval(S.tick);
   clearQuizStorage();
-  document.body.innerHTML = '<div class="kicked-screen"><div style="font-size:3rem">🚪</div>' +
+  document.body.innerHTML = '<div class="kicked-screen empty-state"><div style="font-size:3rem" aria-hidden="true">🚪</div>' +
     '<h2>' + escapeHtml(t('kick.title')) + '</h2>' +
     '<p>' + escapeHtml(t('kick.sub')) + '</p></div>';
 }
@@ -1503,7 +1566,7 @@ function studentOnAnswered(msg) {
   const pill = $('answered-pill');
   if (pill) {
     show(pill, true);
-    $('answered-count').textContent = `${S.answeredIds.length}/${msg.total || S.answeredIds.length}`;
+    setAnsweredCount(S.answeredIds.length, msg.total || S.answeredIds.length);
   }
 }
 
@@ -1565,21 +1628,18 @@ function reRenderAfterLangChange() {
 function restoreMyAnswerUI() {
   if (!S.myAnswer) return;
   const idx = S.myAnswer.opt;
-  document.querySelectorAll('.option-btn').forEach((btn, i) => {
-    btn.disabled = true;
-    btn.classList.toggle('selected', i === idx);
-    if (i !== idx) btn.classList.add('dimmed');
-  });
+  lockOptionButtons(idx);
   const box = $('answer-status');
   if (!box) return;
   box.className = 'answer-status pending';
+  attr(box, 'aria-live', 'polite');
   box.innerHTML = `
-    <span class="pending-badge">${LETTERS[idx]}</span>
+    <span class="pending-badge badge badge-muted" aria-hidden="true">${LETTERS[idx]}</span>
     <div>
       <strong>${escapeHtml(t('ans.accepted'))}</strong>
       <p>${escapeHtml(t('ans.acceptedsub'))}</p>
     </div>
-    <span class="spinner"></span>`;
+    <span class="spinner" aria-hidden="true"></span>`;
   show(box, true);
 }
 
@@ -1592,10 +1652,14 @@ function startCountdown(onEnd) {
   const disp = $('timer-display');
   const box = $('timer-box');
   box?.classList.remove('urgent');
+  box?.classList.remove('is-urgent');
+  // Ҳар сония эълон кардан = садо; барои screen reader хомӯш мемонад.
+  if (disp) attr(disp, 'aria-live', 'off');
 
   const paint = () => {
     const left = Math.max(0, Math.ceil((S.endsAt - Date.now()) / 1000));
-    if (disp) disp.textContent = left;
+    if (disp) disp.textContent = fmtNum(left);
+    if (left <= 6) box?.classList.add('is-urgent');
     if (left <= 5) {
       box?.classList.add('urgent');
       if (left > 0) playSound('tick');
@@ -1612,6 +1676,42 @@ function startCountdown(onEnd) {
 /* ------------------------------------------------------------------ */
 /*  Рендери савол                                                      */
 /* ------------------------------------------------------------------ */
+
+/**
+ * Ҳисобкунаки «чанд нафар ҷавоб доданд».
+ * Худи рақам барои screen reader хомӯш аст; эълон дар минтақаи алоҳида
+ * ва на зудтар аз ҳар 2 сония — то садо нашавад.
+ */
+let _annTimer = null;
+let _annPending = null;
+function setAnsweredCount(n, total) {
+  const el = $('answered-count');
+  if (!el) return;
+  el.textContent = `${fmtNum(n)}/${fmtNum(total)}`;
+  attr(el, 'aria-live', 'off');
+
+  const host = $('answered-pill') || el.parentElement;
+  if (!host) return;
+  let live = host.querySelector('.answered-live');
+  if (!live) {
+    live = document.createElement('span');
+    live.className = 'answered-live u-visually-hidden';
+    attr(live, 'aria-live', 'polite');
+    attr(live, 'aria-atomic', 'true');
+    host.appendChild(live);
+  }
+  _annPending = t('a11y.answered', { n: fmtNum(n), t: fmtNum(total) });
+  if (_annTimer) return;
+  const flush = () => {
+    if (_annPending !== null && live.textContent !== _annPending) live.textContent = _annPending;
+    _annPending = null;
+    _annTimer = setTimeout(() => {
+      _annTimer = null;
+      if (_annPending !== null) flush();
+    }, 2000);
+  };
+  flush();
+}
 
 function renderQuestion(qIndex, pos, total) {
   const q = Q(qIndex);
@@ -1630,7 +1730,13 @@ function renderQuestion(qIndex, pos, total) {
   S.totalQ = total;
   const fill = $('progress-bar-fill');
   if (fill) fill.style.width = `${((pos + 1) / total) * 100}%`;
-  $('answered-count').textContent = '0/' + (S.participants.length || 0);
+  if (fill && fill.parentElement) {
+    attr(fill.parentElement, 'role', 'progressbar');
+    attr(fill.parentElement, 'aria-valuemin', '1');
+    attr(fill.parentElement, 'aria-valuemax', String(total));
+    attr(fill.parentElement, 'aria-valuenow', String(pos + 1));
+  }
+  setAnsweredCount(0, S.participants.length || 0);
 
   show($('explanation-box'), false);
   show($('answer-status'), false);
@@ -1652,13 +1758,30 @@ function renderQuestion(qIndex, pos, total) {
 function renderStudentOptions(q) {
   const grid = $('options-grid');
   grid.innerHTML = '';
+  attr(grid, 'role', 'group');
+  attr(grid, 'aria-label', t('a11y.options'));
   q.options.forEach((text, i) => {
     const btn = document.createElement('button');
     btn.className = 'option-btn';
+    btn.type = 'button';
     btn.dataset.idx = i;
-    btn.innerHTML = `<span class="option-badge">${LETTERS[i]}</span><span>${escapeHtml(L(text))}</span>`;
+    attr(btn, 'aria-pressed', 'false');
+    attr(btn, 'aria-label', t('a11y.option', { l: LETTERS[i], x: L(text) }));
+    btn.innerHTML = `<span class="option-badge" aria-hidden="true">${LETTERS[i]}</span><span>${escapeHtml(L(text))}</span>`;
     btn.addEventListener('click', () => selectOption(i));
     grid.appendChild(btn);
+  });
+}
+
+/** Ҳолати «ҷавоб қулф шуд» дар тугмаҳои вариант. */
+function lockOptionButtons(chosenIdx) {
+  document.querySelectorAll('.option-btn').forEach((btn, i) => {
+    btn.disabled = true;
+    btn.classList.add('is-locked');
+    attr(btn, 'aria-disabled', 'true');
+    attr(btn, 'aria-pressed', i === chosenIdx ? 'true' : 'false');
+    btn.classList.toggle('selected', i === chosenIdx);
+    if (i !== chosenIdx) btn.classList.add('dimmed');
   });
 }
 
@@ -1667,16 +1790,19 @@ function renderHostOptions(q, revealed) {
   const box = $('host-options');
   const counts = (S.reveal && S.reveal.counts) || liveCounts();
   const totalAns = counts.reduce((a, b) => a + b, 0) || 1;
+  const maxCount = Math.max(...counts);
+  // Вақте ки ҳеҷ кас ҷавоб надодааст — ягон вариант «пешсаф» нест.
+  const topIdx = maxCount > 0 ? counts.indexOf(maxCount) : -1;
 
   box.innerHTML = q.options.map((text, i) => {
     const isCorrect = i === q.correct;
     const pct = Math.round((counts[i] / totalAns) * 100);
     return `
-      <div class="host-option ${isCorrect ? 'is-correct' : ''} ${revealed && !isCorrect && counts[i] ? 'is-wrong' : ''}">
-        <span class="option-badge">${LETTERS[i]}</span>
+      <div class="host-option ${isCorrect ? 'is-correct' : ''} ${revealed && !isCorrect && counts[i] ? 'is-wrong' : ''} ${i === topIdx ? 'is-top' : ''}">
+        <span class="option-badge" aria-hidden="true">${LETTERS[i]}</span>
         <span class="host-option-text">${escapeHtml(L(text))}</span>
-        ${isCorrect ? `<span class="correct-tag">${escapeHtml(t('tag.correct'))}</span>` : ''}
-        <span class="host-option-count">${counts[i]}</span>
+        ${isCorrect ? `<span class="correct-tag badge badge-ok">${escapeHtml(t('tag.correct'))}</span>` : ''}
+        <span class="host-option-count">${escapeHtml(fmtNum(counts[i]))}</span>
         <div class="host-option-bar" style="width:${counts[i] ? pct : 0}%"></div>
       </div>`;
   }).join('');
@@ -1701,21 +1827,18 @@ function selectOption(optionIndex) {
 
   S.myAnswer = { opt: optionIndex, pos: S.qPos };
 
-  document.querySelectorAll('.option-btn').forEach((btn, i) => {
-    btn.disabled = true;
-    btn.classList.toggle('selected', i === optionIndex);
-    if (i !== optionIndex) btn.classList.add('dimmed');
-  });
+  lockOptionButtons(optionIndex);
 
   const box = $('answer-status');
   box.className = 'answer-status pending';
+  attr(box, 'aria-live', 'polite');
   box.innerHTML = `
-    <span class="pending-badge">${LETTERS[optionIndex]}</span>
+    <span class="pending-badge badge badge-muted" aria-hidden="true">${LETTERS[optionIndex]}</span>
     <div>
       <strong>${escapeHtml(t('ans.accepted'))}</strong>
       <p>${escapeHtml(t('ans.acceptedsub'))}</p>
     </div>
-    <span class="spinner"></span>`;
+    <span class="spinner" aria-hidden="true"></span>`;
   show(box, true);
 
   playSound('lock');
@@ -1745,6 +1868,9 @@ function renderReveal(rev) {
   document.querySelectorAll('.option-btn').forEach((btn, i) => {
     btn.disabled = true;
     btn.classList.remove('dimmed');
+    btn.classList.remove('is-locked');
+    attr(btn, 'aria-disabled', 'true');
+    attr(btn, 'aria-pressed', mine && i === mine.opt ? 'true' : 'false');
     if (i === rev.correct) btn.classList.add('correct');
     if (mine && i === mine.opt && !mine.ok) btn.classList.add('incorrect');
   });
@@ -1752,22 +1878,23 @@ function renderReveal(rev) {
   const box = $('answer-status');
   const myStanding = (rev.standings || []).find((s) => s.id === S.myId);
   const rankTxt = myStanding
-    ? t('rev.rank', { r: myStanding.rank, s: myStanding.score })
+    ? t('rev.rank', { r: fmtNum(myStanding.rank), s: fmtNum(myStanding.score) })
     : '';
   const rightTxt = t('rev.right', { l: LETTERS[rev.correct] });
 
+  attr(box, 'aria-live', 'polite');
   if (!mine) {
     box.className = 'answer-status neutral';
-    box.innerHTML = `<span class="pending-badge">—</span><div><strong>${escapeHtml(t('rev.none'))}</strong>
+    box.innerHTML = `<span class="pending-badge badge badge-muted" aria-hidden="true">—</span><div><strong>${escapeHtml(t('rev.none'))}</strong>
       <p>${rightTxt}${escapeHtml(rankTxt)}</p></div>`;
   } else if (mine.ok) {
     box.className = 'answer-status good';
-    box.innerHTML = `<span class="pending-badge">✓</span><div><strong>${escapeHtml(t('rev.good'))}</strong>
-      <p>${escapeHtml(t('rev.points', { p: mine.points }))}${escapeHtml(rankTxt)}</p></div>`;
+    box.innerHTML = `<span class="pending-badge badge badge-ok" aria-hidden="true">✓</span><div><strong>${escapeHtml(t('rev.good'))}</strong>
+      <p>${escapeHtml(t('rev.points', { p: fmtNum(mine.points) }))}${escapeHtml(rankTxt)}</p></div>`;
     playSound('correct');
   } else {
     box.className = 'answer-status bad';
-    box.innerHTML = `<span class="pending-badge">✕</span><div><strong>${escapeHtml(t('rev.bad'))}</strong>
+    box.innerHTML = `<span class="pending-badge badge badge-bad" aria-hidden="true">✕</span><div><strong>${escapeHtml(t('rev.bad'))}</strong>
       <p>${rightTxt}${escapeHtml(rankTxt)}</p></div>`;
     playSound('incorrect');
   }
@@ -1778,7 +1905,7 @@ function renderReveal(rev) {
   show(exp, true);
 
   const disp = $('timer-display');
-  if (disp) disp.textContent = '0';
+  if (disp) disp.textContent = fmtNum(0);
 }
 
 /* ------------------------------------------------------------------ */
@@ -1789,25 +1916,29 @@ function updateAdminPanel() {
   if (S.role !== 'host') return;
 
   const online = onlineCount();
-  $('stat-online').textContent = online;
-  $('stat-answered').textContent = `${S.answeredIds.length}/${S.participants.length}`;
-  $('answered-count').textContent = `${S.answeredIds.length}/${S.participants.length}`;
+  $('stat-online').textContent = fmtNum(online);
+  $('stat-answered').textContent = `${fmtNum(S.answeredIds.length)}/${fmtNum(S.participants.length)}`;
+  setAnsweredCount(S.answeredIds.length, S.participants.length);
 
   const counts = S.phase === 'reveal' && S.reveal ? S.reveal.counts : liveCounts();
   const q = Q(S.order[S.qPos]);
   if (q) {
     const okCount = counts[q.correct] || 0;
     const totalAns = counts.reduce((a, b) => a + b, 0);
-    $('stat-correct').textContent = totalAns ? `${Math.round((okCount / totalAns) * 100)}%` : '—';
+    const okPct = totalAns ? Math.round((okCount / totalAns) * 100) : null;
+    const statCorrect = $('stat-correct');
+    statCorrect.textContent = okPct === null ? '—' : `${fmtNum(okPct)}%`;
+    // Камтар аз сеяки синф дуруст ҷавоб дод — ин рақам диққат мехоҳад.
+    closestEl(statCorrect, '.stat-tile')?.classList.toggle('is-alert', okPct !== null && okPct < 34);
 
     const distBox = $('dist-box');
     if (distBox) {
       const max = Math.max(1, ...counts);
       distBox.innerHTML = counts.map((c, i) => `
         <div class="dist-row ${i === q.correct ? 'is-correct' : ''}">
-          <span class="dist-letter">${LETTERS[i]}</span>
+          <span class="dist-letter" aria-hidden="true">${LETTERS[i]}</span>
           <div class="dist-track"><div class="dist-bar" style="width:${(c / max) * 100}%"></div></div>
-          <span class="dist-num">${c}</span>
+          <span class="dist-num">${escapeHtml(fmtNum(c))}</span>
         </div>`).join('');
     }
     if (S.phase !== 'reveal') renderHostOptions(q, false);
@@ -1819,17 +1950,17 @@ function updateAdminPanel() {
     body.innerHTML = sorted.map((p) => {
       const a = p.answers.find((x) => x.pos === S.qPos);
       let cell;
-      if (!a) cell = `<span class="chip waiting">${escapeHtml(t('chip.waiting'))}</span>`;
-      else if (S.phase === 'reveal') cell = `<span class="chip ${a.ok ? 'ok' : 'bad'}">${LETTERS[a.opt]} ${a.ok ? '✓' : '✕'}</span>`;
-      else cell = `<span class="chip picked">${LETTERS[a.opt]}</span>`;
+      if (!a) cell = `<span class="chip waiting badge badge-muted">${escapeHtml(t('chip.waiting'))}</span>`;
+      else if (S.phase === 'reveal') cell = `<span class="chip ${a.ok ? 'ok' : 'bad'} badge ${a.ok ? 'badge-ok' : 'badge-bad'}">${LETTERS[a.opt]} ${deco(a.ok ? '✓' : '✕')}</span>`;
+      else cell = `<span class="chip picked badge">${LETTERS[a.opt]}</span>`;
 
       return `<tr class="${p.online ? '' : 'row-offline'}">
-        <td><span class="dot ${p.online ? 'on' : 'off'}"></span>${escapeHtml(p.name)}</td>
+        <td><span class="dot ${p.online ? 'on' : 'off'}" aria-hidden="true"></span>${escapeHtml(p.name)}</td>
         <td>${cell}</td>
-        <td class="num">${p.score}</td>
-        <td><button class="kick-btn sm" data-id="${escapeHtml(p.id)}" title="${escapeHtml(t('title.kick'))}">✕</button></td>
+        <td class="num">${escapeHtml(fmtNum(p.score))}</td>
+        <td><button class="kick-btn sm" type="button" data-id="${escapeHtml(p.id)}" title="${escapeHtml(t('title.kick'))}" aria-label="${escapeHtml(t('title.kick'))}">${deco('✕')}</button></td>
       </tr>`;
-    }).join('') || `<tr><td colspan="4" class="empty-row">${escapeHtml(t('monitor.empty'))}</td></tr>`;
+    }).join('') || `<tr><td colspan="4" class="empty-row"><div class="empty-state">${escapeHtml(t('monitor.empty'))}</div></td></tr>`;
 
     body.querySelectorAll('.kick-btn').forEach((b) => {
       b.addEventListener('click', () => hostKick(b.dataset.id));
@@ -1860,10 +1991,10 @@ function showLeaderboard(standings, totalQuestions) {
       const step = document.createElement('div');
       step.className = `podium-step ${cls[i]}`;
       step.innerHTML = `
-        <div class="podium-avatar">${medals[i]}</div>
+        <div class="podium-avatar" aria-hidden="true">${medals[i]}</div>
         <div class="podium-name">${escapeHtml(p.name)}</div>
-        <div class="podium-score">${escapeHtml(t('lb.points', { p: p.score }))}</div>
-        <div class="podium-pillar">${nums[i]}</div>`;
+        <div class="podium-score badge">${escapeHtml(t('lb.points', { p: fmtNum(p.score) }))}</div>
+        <div class="podium-pillar" aria-hidden="true">${nums[i]}</div>`;
       podium.appendChild(step);
     });
   }
@@ -1876,22 +2007,27 @@ function showLeaderboard(standings, totalQuestions) {
       const rankClass = i === 0 ? 'rank-1' : i === 1 ? 'rank-2' : i === 2 ? 'rank-3' : '';
       const isMe = p.id === S.myId ? ' class="me-row"' : '';
       return `<tr${isMe}>
-        <td><span class="rank-badge ${rankClass}">${i + 1}</span></td>
-        <td><strong>${escapeHtml(p.name)}</strong>${p.id === S.myId ? ` <span class="you-tag">${escapeHtml(t('lb.you'))}</span>` : ''}</td>
-        <td>${escapeHtml(t('lb.points', { p: p.score }))}</td>
-        <td>${correct} / ${total} (${acc}%)</td>
+        <td><span class="rank-badge badge ${rankClass}">${escapeHtml(fmtNum(i + 1))}</span></td>
+        <td><strong>${escapeHtml(p.name)}</strong>${p.id === S.myId ? ` <span class="you-tag badge badge-muted">${escapeHtml(t('lb.you'))}</span>` : ''}</td>
+        <td>${escapeHtml(t('lb.points', { p: fmtNum(p.score) }))}</td>
+        <td>${escapeHtml(fmtNum(correct))} / ${escapeHtml(fmtNum(total))} (${escapeHtml(fmtNum(acc))}%)</td>
       </tr>`;
-    }).join('') || `<tr><td colspan="4" class="empty-row">${escapeHtml(t('lb.empty'))}</td></tr>`;
+    }).join('') || `<tr><td colspan="4" class="empty-row"><div class="empty-state">${escapeHtml(t('lb.empty'))}</div></td></tr>`;
   }
 
   const me = standings.find((p) => p.id === S.myId);
   const card = $('my-result-card');
   if (card && S.role === 'student' && me) {
+    card.classList.add('card-section');
     card.innerHTML = `
-      <div class="my-rank">#${me.rank || standings.indexOf(me) + 1}</div>
+      <div class="my-rank badge"><span aria-hidden="true">#</span>${escapeHtml(fmtNum(me.rank || standings.indexOf(me) + 1))}</div>
       <div>
         <strong>${escapeHtml(me.name)}</strong>
-        <p>${escapeHtml(t('lb.myline', { p: me.score, c: me.correct != null ? me.correct : 0, t: total }))}</p>
+        <p>${escapeHtml(t('lb.myline', {
+          p: fmtNum(me.score),
+          c: fmtNum(me.correct != null ? me.correct : 0),
+          t: fmtNum(total)
+        }))}</p>
       </div>`;
     show(card, true);
   }
@@ -1920,13 +2056,13 @@ function renderHostReport(total) {
 
     return `<tr>
       <td><strong>${escapeHtml(p.name)}</strong></td>
-      <td class="num">${p.score}</td>
-      <td class="num">${correct}/${total}</td>
-      <td class="num">${acc}%</td>
-      <td class="num">${avg}${escapeHtml(t('unit.sec'))}</td>
+      <td class="num">${escapeHtml(fmtNum(p.score))}</td>
+      <td class="num">${escapeHtml(fmtNum(correct))}/${escapeHtml(fmtNum(total))}</td>
+      <td class="num"><span class="badge ${acc >= 70 ? 'badge-ok' : acc >= 40 ? 'badge-muted' : 'badge-bad'}">${escapeHtml(fmtNum(acc))}%</span></td>
+      <td class="num">${escapeHtml(avg)}${escapeHtml(t('unit.sec'))}</td>
       <td><div class="qdots">${dots}</div></td>
     </tr>`;
-  }).join('') || `<tr><td colspan="6" class="empty-row">${escapeHtml(t('report.empty'))}</td></tr>`;
+  }).join('') || `<tr><td colspan="6" class="empty-row"><div class="empty-state">${escapeHtml(t('report.empty'))}</div></td></tr>`;
 }
 
 function exportCsv() {
