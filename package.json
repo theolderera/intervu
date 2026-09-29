@@ -1,0 +1,11 @@
+{
+  "name": "quiz-master",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Interactive classroom quiz for C++ and JavaScript (Tajik / Russian)",
+  "scripts": {
+    "test": "node test/run-all.js",
+    "start": "node tools/serve.js",
+    "hash": "node tools/hash-password.js"
+  }
+}

@@ -671,24 +671,80 @@ body {
 }
 
 /* Sound toggle button */
-.sound-toggle {
+/* ---- Асбобҳои боло: забон + овоз / Верхние кнопки: язык + звук ---- */
+
+.top-tools {
   position: fixed;
-  bottom: 20px;
-  right: 20px;
-  width: 44px;
-  height: 44px;
+  top: 16px;
+  right: 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  z-index: 100;
+}
+
+.lang-switch {
+  display: flex;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 999px;
+  overflow: hidden;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+}
+
+.lang-switch button {
+  background: transparent;
+  border: 0;
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 9px 14px;
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.lang-switch button:hover { color: #fff; }
+
+.lang-switch button.active {
+  background: var(--primary, #6366f1);
+  color: #fff;
+}
+
+/* Нишони қулф дар корти «Муаллим» / значок замка на карточке учителя */
+.role-card { position: relative; }
+
+.lock-badge {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  font-size: 1rem;
+  opacity: 0.75;
+}
+
+.sound-toggle {
+  position: static;
+  width: 40px;
+  height: 40px;
+  flex: none;
   border-radius: 50%;
   background: var(--card-bg);
   border: 1px solid var(--card-border);
   color: #fff;
-  font-size: 1.2rem;
+  font-size: 1.1rem;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   box-shadow: 0 4px 12px rgba(0,0,0,0.3);
   transition: var(--transition);
-  z-index: 100;
+}
+
+@media (max-width: 560px) {
+  .top-tools { top: 10px; right: 10px; gap: 6px; }
+  .lang-switch button { padding: 7px 10px; font-size: 0.72rem; }
+  .sound-toggle { width: 34px; height: 34px; font-size: 0.95rem; }
 }
 
 .sound-toggle:hover {

@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>C++ Quiz Master — Викторинаи интерактивӣ барои дарси C++</title>
-  <meta name="description" content="Платформаи интерактивии саволу ҷавоби C++: муаллим ҳуҷра месозад, донишҷӯён бо линк ворид мешаванд, ҷавоби дуруст танҳо баъди тамом шудани вақт кушода мешавад.">
+  <title>Quiz Master — Викторинаи интерактивӣ / Интерактивная викторина</title>
+  <meta name="description" content="Платформаи интерактивии саволу ҷавоб барои C++ ва JavaScript: муаллим ҳуҷра месозад, донишҷӯён бо линк ворид мешаванд, ҷавоби дуруст танҳо баъди тамом шудани вақт кушода мешавад.">
 
   <link rel="stylesheet" href="style.css">
 
@@ -13,23 +13,34 @@
   <!-- Релеи эҳтиётӣ: агар WebRTC аз паси NAT-и оператор нагузарад (интернети мобилӣ),
        ҳамаи паёмҳо аз ин канали WebSocket мегузаранд. Бе он танҳо чанд нафар пайваст мешуданд. -->
   <script src="https://cdn.jsdelivr.net/npm/mqtt@5.10.1/dist/mqtt.min.js" defer></script>
+
+  <script src="config.js" defer></script>
+  <script src="crypto-auth.js" defer></script>
+  <script src="i18n.js" defer></script>
   <script src="questions.js" defer></script>
+  <script src="questions-js.js" defer></script>
   <script src="app.js" defer></script>
 </head>
 <body>
 
   <canvas id="confetti-canvas" style="position: fixed; top:0; left:0; pointer-events:none; z-index:99;"></canvas>
 
-  <button id="btn-sound-toggle" class="sound-toggle" title="Овоз">🔊</button>
+  <div class="top-tools">
+    <div class="lang-switch" id="lang-switch">
+      <button type="button" data-lang-btn="tg" class="active">ТҶ</button>
+      <button type="button" data-lang-btn="ru">РУ</button>
+    </div>
+    <button id="btn-sound-toggle" class="sound-toggle" data-i18n-title="title.sound">🔊</button>
+  </div>
 
   <div id="toast-stack" class="toast-stack"></div>
 
   <div class="app-container">
 
     <header class="header-brand">
-      <div class="brand-badge">⚡ Платформаи Омӯзиши C++</div>
-      <h1 class="brand-title">C++ Quiz Master</h1>
-      <p class="brand-subtitle">Викторинаи интерактивӣ барои донишҷӯёни навомӯз</p>
+      <div class="brand-badge" data-i18n="brand.badge">⚡ Платформаи омӯзиши барномасозӣ</div>
+      <h1 class="brand-title">Quiz Master</h1>
+      <p class="brand-subtitle" data-i18n="brand.subtitle">Викторинаи интерактивӣ барои донишҷӯёни навомӯз</p>
     </header>
 
     <!-- ============ SCREEN 1: Welcome ============ -->
@@ -40,113 +51,129 @@
         <div class="link-join-banner">
           <div class="link-join-icon">🎓</div>
           <div class="link-join-text">
-            <h2>Даъватнома аз муаллим</h2>
-            <p>Шумо ҳамчун <strong>донишҷӯ</strong> ба ҳуҷраи зерин ворид мешавед</p>
+            <h2 data-i18n="link.title">Даъватнома аз муаллим</h2>
+            <p data-i18n="link.sub">Шумо ҳамчун <strong>донишҷӯ</strong> ба ҳуҷраи зерин ворид мешавед</p>
           </div>
           <div id="link-room-code" class="locked-code">CPP-0000</div>
         </div>
 
         <div class="form-group" style="margin-top:22px;">
-          <label for="input-link-name">Ном ва насаби худро нависед:</label>
+          <label for="input-link-name" data-i18n="link.namelabel">Ном ва насаби худро нависед:</label>
           <input type="text" id="input-link-name" class="input-field" maxlength="28"
-                 placeholder="Масалан: Сомонӣ Муҳаммад" autocomplete="off">
-          <p class="field-hint">Муаллим шуморо бо ҳамин ном дар ҷадвали рейтинг мебинад.</p>
+                 data-i18n-ph="link.nameph" placeholder="Масалан: Сомонӣ Муҳаммад" autocomplete="off">
+          <p class="field-hint" data-i18n="link.namehint">Муаллим шуморо бо ҳамин ном дар ҷадвали рейтинг мебинад.</p>
         </div>
-        <button id="btn-join-by-link" class="btn btn-success">🎮 Ворид шудан ба бозӣ</button>
+        <button id="btn-join-by-link" class="btn btn-success" data-i18n="btn.join">🎮 Ворид шудан ба бозӣ</button>
       </div>
 
       <!-- Ҳолати Б: вуруди оддӣ — интихоби нақш -->
       <div id="role-picker">
-        <h2 style="text-align: center; margin-bottom: 8px;">Марҳамат! Нақши худро интихоб кунед:</h2>
+        <h2 style="text-align: center; margin-bottom: 8px;" data-i18n="role.pick">Марҳамат! Нақши худро интихоб кунед:</h2>
 
         <div class="role-cards">
-          <div id="card-role-host" class="role-card active">
+          <div id="card-role-host" class="role-card">
             <div class="role-icon">👨‍🏫</div>
-            <h3>Муаллим (Админ)</h3>
-            <p>Бозӣ эҷод кунед, линкро ба донишҷӯён фиристед ва тамоми ҷараёнро назорат кунед.</p>
+            <h3 data-i18n="role.host.title">Муаллим (Админ)</h3>
+            <p data-i18n="role.host.desc">Бозӣ эҷод кунед, линкро ба донишҷӯён фиристед ва тамоми ҷараёнро назорат кунед.</p>
+            <span class="lock-badge">🔒</span>
           </div>
 
-          <div id="card-role-student" class="role-card">
+          <div id="card-role-student" class="role-card active">
             <div class="role-icon">🎓</div>
-            <h3>Донишҷӯ</h3>
-            <p>Бо коди ҳуҷра ё линки муаллим ворид шавед ва ба саволҳо ҷавоб диҳед.</p>
+            <h3 data-i18n="role.student.title">Донишҷӯ</h3>
+            <p data-i18n="role.student.desc">Бо коди ҳуҷра ё линки муаллим ворид шавед ва ба саволҳо ҷавоб диҳед.</p>
           </div>
         </div>
 
-        <div id="form-host" class="form-box">
+        <div id="form-host" class="form-box hidden">
           <div class="form-group">
-            <label for="input-host-name">Ном ва насаби шумо (Муаллим):</label>
-            <input type="text" id="input-host-name" class="input-field" maxlength="28" placeholder="Масалан: Устод Алиев" value="Устод">
+            <label for="input-host-name" data-i18n="host.namelabel">Ном ва насаби шумо (Муаллим):</label>
+            <input type="text" id="input-host-name" class="input-field" maxlength="28"
+                   data-i18n-ph="host.nameph" placeholder="Масалан: Устод Алиев" value="Устод">
           </div>
-          <button id="btn-create-room" class="btn btn-primary">🚀 Сохтани ҳуҷраи бозӣ</button>
+          <div class="form-group">
+            <label for="input-host-pass" data-i18n="host.passlabel">🔒 Пароли муаллим:</label>
+            <input type="password" id="input-host-pass" class="input-field" maxlength="64"
+                   data-i18n-ph="host.passph" placeholder="Пароли шахсии шумо" autocomplete="off">
+            <p class="field-hint" data-i18n="host.passhint">Бе пароли дуруст ҳуҷра сохта намешавад. Донишҷӯён паролро намедонанд.</p>
+          </div>
+          <button id="btn-create-room" class="btn btn-primary" data-i18n="btn.createroom">🚀 Сохтани ҳуҷраи бозӣ</button>
         </div>
 
-        <div id="form-student" class="form-box hidden">
+        <div id="form-student" class="form-box">
           <div class="form-group">
-            <label for="input-student-name">Ном ва насаби шумо (Донишҷӯ):</label>
-            <input type="text" id="input-student-name" class="input-field" maxlength="28" placeholder="Масалан: Сомонӣ Муҳаммад">
+            <label for="input-student-name" data-i18n="student.namelabel">Ном ва насаби шумо (Донишҷӯ):</label>
+            <input type="text" id="input-student-name" class="input-field" maxlength="28"
+                   data-i18n-ph="link.nameph" placeholder="Масалан: Сомонӣ Муҳаммад">
           </div>
           <div class="form-group">
-            <label for="input-room-code">Коди ҳуҷра:</label>
+            <label for="input-room-code" data-i18n="room.codelabel">Коди ҳуҷра:</label>
             <input type="text" id="input-room-code" class="input-field" placeholder="CPP-8492"
                    style="font-family: var(--font-mono); text-transform: uppercase;">
           </div>
-          <button id="btn-join-room" class="btn btn-success">🎮 Ворид шудан ба бозӣ</button>
+          <button id="btn-join-room" class="btn btn-success" data-i18n="btn.join">🎮 Ворид шудан ба бозӣ</button>
         </div>
       </div>
     </section>
 
     <!-- ============ SCREEN 2: Lobby ============ -->
     <section id="screen-lobby" class="glass-card hidden">
-      <h2 style="text-align: center;">Ҳуҷраи интизорӣ</h2>
+      <h2 style="text-align: center;" data-i18n="lobby.title">Ҳуҷраи интизорӣ</h2>
 
       <div class="room-share-box">
-        <p style="color: var(--text-muted);">Коди ҳуҷра барои донишҷӯён:</p>
+        <p style="color: var(--text-muted);" data-i18n="lobby.codefor">Коди ҳуҷра барои донишҷӯён:</p>
         <div id="display-room-code" class="room-code-badge">CPP-0000</div>
         <div id="host-share-tools" class="hidden">
-          <button id="btn-copy-link" class="copy-link-btn">🔗 Нусхабардории линк</button>
-          <p class="field-hint" style="margin-top:10px;">
+          <button id="btn-copy-link" class="copy-link-btn" data-i18n="btn.copylink">🔗 Нусхабардории линк</button>
+          <p class="field-hint" style="margin-top:10px;" data-i18n="lobby.linkhint">
             Ҳар кас бо ин линк ворид шавад, <strong>худкор ҳамчун донишҷӯ</strong> дохил мешавад —
             нақши муаллимро интихоб карда наметавонад.
           </p>
         </div>
-        <div id="student-conn-state" class="conn-state hidden"><span class="spinner"></span> Пайвастшавӣ...</div>
+        <div id="student-conn-state" class="conn-state hidden"><span class="spinner"></span> <span data-i18n="conn.connecting">Пайвастшавӣ...</span></div>
       </div>
 
       <!-- Танзимот — танҳо муаллим -->
       <div id="host-settings" class="settings-box hidden">
-        <h3 class="panel-title">⚙️ Танзимоти бозӣ</h3>
+        <h3 class="panel-title" data-i18n="settings.title">⚙️ Танзимоти бозӣ</h3>
         <div class="settings-grid">
           <div class="setting-item">
-            <label>Вақт барои ҳар савол</label>
-            <div class="seg-control" id="seg-duration">
-              <button type="button" data-val="10">10 сон</button>
-              <button type="button" data-val="20" class="active">20 сон</button>
-              <button type="button" data-val="30">30 сон</button>
-              <button type="button" data-val="45">45 сон</button>
+            <label data-i18n="settings.subject">Фан</label>
+            <div class="seg-control" id="seg-subject">
+              <button type="button" data-val="cpp" class="active">C++</button>
+              <button type="button" data-val="js">JavaScript</button>
             </div>
           </div>
           <div class="setting-item">
-            <label>Шумораи саволҳо</label>
+            <label data-i18n="settings.duration">Вақт барои ҳар савол</label>
+            <div class="seg-control" id="seg-duration">
+              <button type="button" data-val="10">10 <span data-i18n="seg.sec">сон</span></button>
+              <button type="button" data-val="20" class="active">20 <span data-i18n="seg.sec">сон</span></button>
+              <button type="button" data-val="30">30 <span data-i18n="seg.sec">сон</span></button>
+              <button type="button" data-val="45">45 <span data-i18n="seg.sec">сон</span></button>
+            </div>
+          </div>
+          <div class="setting-item">
+            <label data-i18n="settings.count">Шумораи саволҳо</label>
             <div class="seg-control" id="seg-count">
               <button type="button" data-val="10">10</button>
               <button type="button" data-val="20">20</button>
               <button type="button" data-val="30">30</button>
-              <button type="button" data-val="0" class="active">Ҳама</button>
+              <button type="button" data-val="0" class="active" data-i18n="seg.all">Ҳама</button>
             </div>
           </div>
           <div class="setting-item">
-            <label>Тартиби саволҳо</label>
+            <label data-i18n="settings.order">Тартиби саволҳо</label>
             <div class="seg-control" id="seg-shuffle">
-              <button type="button" data-val="0" class="active">Пайдарпай</button>
-              <button type="button" data-val="1">Тасодуфӣ</button>
+              <button type="button" data-val="0" class="active" data-i18n="seg.sequential">Пайдарпай</button>
+              <button type="button" data-val="1" data-i18n="seg.random">Тасодуфӣ</button>
             </div>
           </div>
           <div class="setting-item">
-            <label>Гузариш ба саволи навбатӣ</label>
+            <label data-i18n="settings.next">Гузариш ба саволи навбатӣ</label>
             <div class="seg-control" id="seg-auto">
-              <button type="button" data-val="0" class="active">Дастӣ</button>
-              <button type="button" data-val="1">Худкор</button>
+              <button type="button" data-val="0" class="active" data-i18n="seg.manual">Дастӣ</button>
+              <button type="button" data-val="1" data-i18n="seg.auto">Худкор</button>
             </div>
           </div>
         </div>
@@ -154,20 +181,20 @@
 
       <div style="margin-top: 24px;">
         <h3 class="panel-title">
-          Иштирокчиён (<span id="participant-count">0</span>)
-          <span class="live-dot" title="Ҳолати воқеӣ">●</span>
+          <span data-i18n="participants.title">Иштирокчиён</span> (<span id="participant-count">0</span>)
+          <span class="live-dot" data-i18n-title="title.live">●</span>
         </h3>
         <div id="participants-grid" class="participants-grid"></div>
-        <p id="lobby-empty-msg" class="field-hint">Ҳанӯз касе ворид нашудааст.</p>
+        <p id="lobby-empty-msg" class="field-hint" data-i18n="lobby.empty">Ҳанӯз касе ворид нашудааст.</p>
       </div>
 
       <div id="host-controls" class="hidden" style="margin-top: 24px;">
-        <button id="btn-start-game" class="btn btn-primary">▶️ ОҒОЗИ БОЗӢ</button>
+        <button id="btn-start-game" class="btn btn-primary" data-i18n="btn.start">▶️ ОҒОЗИ БОЗӢ</button>
       </div>
 
       <div id="student-lobby-msg" class="hidden waiting-note">
         <span class="spinner"></span>
-        <p>Мунтазири оғози бозӣ аз тарафи муаллим бошед...</p>
+        <p data-i18n="student.waiting">Мунтазири оғози бозӣ аз тарафи муаллим бошед...</p>
       </div>
     </section>
 
@@ -176,8 +203,8 @@
 
       <div class="quiz-header">
         <div>
-          <span id="q-counter" class="question-counter">Саволи 1 аз 50</span>
-          <span id="q-category" class="category-tag">Асосҳои C++</span>
+          <span id="q-counter" class="question-counter">—</span>
+          <span id="q-category" class="category-tag">—</span>
         </div>
         <div class="quiz-header-right">
           <div id="answered-pill" class="answered-pill hidden">👥 <span id="answered-count">0/0</span></div>
@@ -211,40 +238,45 @@
 
         <!-- Панели админ — танҳо муаллим -->
         <aside id="admin-panel" class="admin-panel hidden">
-          <h3 class="panel-title">🛡️ Панели назорат</h3>
+          <h3 class="panel-title" data-i18n="admin.title">🛡️ Панели назорат</h3>
 
           <div class="stat-row">
             <div class="stat-tile">
               <span class="stat-value" id="stat-online">0</span>
-              <span class="stat-label">Онлайн</span>
+              <span class="stat-label" data-i18n="stat.online">Онлайн</span>
             </div>
             <div class="stat-tile">
               <span class="stat-value" id="stat-answered">0</span>
-              <span class="stat-label">Ҷавоб дод</span>
+              <span class="stat-label" data-i18n="stat.answered">Ҷавоб дод</span>
             </div>
             <div class="stat-tile">
               <span class="stat-value" id="stat-correct">—</span>
-              <span class="stat-label">Дуруст</span>
+              <span class="stat-label" data-i18n="stat.correct">Дуруст</span>
             </div>
           </div>
 
-          <h4 class="panel-subtitle">Тақсимоти ҷавобҳо</h4>
+          <h4 class="panel-subtitle" data-i18n="dist.title">Тақсимоти ҷавобҳо</h4>
           <div id="dist-box" class="dist-box"></div>
 
-          <h4 class="panel-subtitle">Донишҷӯён (вақти воқеӣ)</h4>
+          <h4 class="panel-subtitle" data-i18n="monitor.title">Донишҷӯён (вақти воқеӣ)</h4>
           <div class="monitor-wrap">
             <table class="monitor-table">
               <thead>
-                <tr><th>Донишҷӯ</th><th>Ҷавоб</th><th>Бал</th><th></th></tr>
+                <tr>
+                  <th data-i18n="th.student">Донишҷӯ</th>
+                  <th data-i18n="th.answer">Ҷавоб</th>
+                  <th data-i18n="th.score">Бал</th>
+                  <th></th>
+                </tr>
               </thead>
               <tbody id="monitor-body"></tbody>
             </table>
           </div>
 
           <div class="admin-actions">
-            <button id="btn-reveal-now" class="btn btn-secondary btn-sm">👁️ Ҳозир кушодан</button>
-            <button id="btn-next-question" class="btn btn-primary btn-sm">Навбатӣ ➔</button>
-            <button id="btn-end-quiz" class="btn btn-danger btn-sm">⏹️ Анҷом</button>
+            <button id="btn-reveal-now" class="btn btn-secondary btn-sm" data-i18n="btn.revealnow">👁️ Ҳозир кушодан</button>
+            <button id="btn-next-question" class="btn btn-primary btn-sm" data-i18n="btn.next">Навбатӣ ➔</button>
+            <button id="btn-end-quiz" class="btn btn-danger btn-sm" data-i18n="btn.end">⏹️ Анҷом</button>
           </div>
         </aside>
       </div>
@@ -254,8 +286,8 @@
     <section id="screen-leaderboard" class="glass-card hidden">
       <div style="text-align: center;">
         <div style="font-size: 3rem;">🏆</div>
-        <h2 class="leaderboard-title">Ҷадвали рейтинг ва ғолибон</h2>
-        <p style="color: var(--text-muted);">Натиҷаҳои финалии викторинаи C++</p>
+        <h2 class="leaderboard-title" data-i18n="lb.title">Ҷадвали рейтинг ва ғолибон</h2>
+        <p style="color: var(--text-muted);" data-i18n="lb.sub">Натиҷаҳои финалии викторина</p>
       </div>
 
       <div id="my-result-card" class="my-result-card hidden"></div>
@@ -265,10 +297,10 @@
       <table class="ranking-table">
         <thead>
           <tr>
-            <th>Ҷой</th>
-            <th>Донишҷӯ</th>
-            <th>Балҳо</th>
-            <th>Ҷавобҳои дуруст</th>
+            <th data-i18n="th.place">Ҷой</th>
+            <th data-i18n="th.student">Донишҷӯ</th>
+            <th data-i18n="th.points">Балҳо</th>
+            <th data-i18n="th.rightans">Ҷавобҳои дуруст</th>
           </tr>
         </thead>
         <tbody id="rankings-table-body"></tbody>
@@ -276,21 +308,28 @@
 
       <!-- Ҳисоботи муфассал — танҳо муаллим -->
       <div id="host-report" class="hidden" style="margin-top:32px;">
-        <h3 class="panel-title">📋 Ҳисоботи муфассали синф</h3>
-        <p class="field-hint">Ҳар нуқта як савол: сабз — дуруст, сурх — нодуруст, хокистарӣ — ҷавоб надод.</p>
+        <h3 class="panel-title" data-i18n="report.title">📋 Ҳисоботи муфассали синф</h3>
+        <p class="field-hint" data-i18n="report.hint">Ҳар нуқта як савол: сабз — дуруст, сурх — нодуруст, хокистарӣ — ҷавоб надод.</p>
         <div class="monitor-wrap">
           <table class="report-table">
             <thead>
-              <tr><th>Донишҷӯ</th><th>Бал</th><th>Дуруст</th><th>Дақиқӣ</th><th>Вақти миёна</th><th>Ҷавобҳо</th></tr>
+              <tr>
+                <th data-i18n="th.student">Донишҷӯ</th>
+                <th data-i18n="th.score">Бал</th>
+                <th data-i18n="th.right">Дуруст</th>
+                <th data-i18n="th.accuracy">Дақиқӣ</th>
+                <th data-i18n="th.avgtime">Вақти миёна</th>
+                <th data-i18n="th.answers">Ҷавобҳо</th>
+              </tr>
             </thead>
             <tbody id="report-body"></tbody>
           </table>
         </div>
-        <button id="btn-export-csv" class="btn btn-secondary" style="margin-top:16px;">⬇️ Боргирии ҳисобот (CSV)</button>
+        <button id="btn-export-csv" class="btn btn-secondary" style="margin-top:16px;" data-i18n="btn.csv">⬇️ Боргирии ҳисобот (CSV)</button>
       </div>
 
       <div style="margin-top: 32px;">
-        <button id="btn-restart-game" class="btn btn-secondary">🔄 Бозии нав</button>
+        <button id="btn-restart-game" class="btn btn-secondary" data-i18n="btn.newgame">🔄 Бозии нав</button>
       </div>
     </section>
 

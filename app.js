@@ -21,6 +21,15 @@ const S = {
   userName: '',
   roomCode: '',
   lockedToStudent: false, // аз линки муаллим омад
+  subject: 'cpp',        // 'cpp' | 'js'
+
+  // Муҳофизат: имзои рақамӣ (ниг. crypto-auth.js)
+  keys: null,            // {privateKey, pub} — калидҳои ин дастгоҳ
+  hostPubKey: null,      // донишҷӯ: калиди кушоди муаллим (аз линк ё TOFU)
+  hostPubB64: null,
+  adminOk: false,        // муаллим паролро дуруст ворид кард
+  adminTries: 0,
+  adminLockUntil: 0,
 
   peer: null,
   connections: [],       // host → students
@@ -46,7 +55,15 @@ const S = {
   standings: [],
   totalQ: 0,
 
-  settings: { duration: 20, count: 0, shuffle: false, auto: false },
+  settings: { duration: 20, count: 0, shuffle: false, auto: false, subject: 'cpp' },
+
+  // Танзими сарборӣ барои синфи калон (50+ донишҷӯ)
+  answeredTimer: null,
+  answeredPending: false,
+  rosterTimer: null,
+  rosterPending: false,
+  lastRosterHash: '',
+  lastLsWrite: 0,
 
   soundEnabled: true,
   audioCtx: null,
@@ -59,6 +76,28 @@ const S = {
 const LETTERS = ['A', 'B', 'C', 'D'];
 const CHANNEL = 'cpp_quiz_channel';
 const LS_KEY = 'cpp_quiz_event';
+
+/* ------------------------------------------------------------------ */
+/*  Бонкҳои савол (фанҳо)                                              */
+/* ------------------------------------------------------------------ */
+
+const SUBJECTS = {
+  cpp: { label: 'C++', prefix: 'CPP' },
+  js: { label: 'JavaScript', prefix: 'JS' }
+};
+
+/** Бонки саволҳои фанни ҷорӣ (ё фанни додашуда). */
+function bank(subject) {
+  const s = subject || S.subject || 'cpp';
+  if (s === 'js') return (typeof jsQuestions !== 'undefined' ? jsQuestions : []);
+  return (typeof cppQuestions !== 'undefined' ? cppQuestions : []);
+}
+
+/** Саволи рақами `i` аз бонки фанни ҷорӣ. */
+function Q(i) {
+  const b = bank();
+  return b[i];
+}
 
 /**
  * Серверҳои ICE.
@@ -182,12 +221,32 @@ if (typeof BroadcastChannel !== 'undefined') {
   bc.onmessage = (e) => handleNetworkMessage(e.data);
 }
 
+/**
+ * Паём мефиристад. Пеш аз фиристодан онро бо калиди махфии ин дастгоҳ
+ * имзо мекунад — тарафи дигар имзоро тафтиш карда, паёмҳои сохтаро
+ * рад мекунад (ниг. crypto-auth.js).
+ */
 function send(msg) {
   msg.room = S.roomCode;
   msg.mid = msg.mid || uid('m');
-  S.seenMsgs.add(msg.mid);
-  if (S.seenMsgs.size > 500) S.seenMsgs = new Set([...S.seenMsgs].slice(-200));
+  rememberMid(msg.mid);
 
+  // Муаллим калиди кушоди худро ҳамроҳ мекунад — донишҷӯе, ки бо коди дастӣ
+  // (бе линк) ворид шуд, имзоро бо ҳамин калид тафтиш мекунад.
+  // `pub` ба матни имзошаванда дохил намешавад, бинобар ин имзоро вайрон намекунад.
+  if (S.role === 'host' && S.keys && S.keys.pub) msg.pub = S.keys.pub;
+
+  if (S.keys && S.keys.privateKey && window.QuizAuth) {
+    QuizAuth.signMessage(S.keys.privateKey, msg)
+      .then((sig) => { if (sig) msg.sig = sig; dispatch(msg); })
+      .catch(() => dispatch(msg));
+  } else {
+    dispatch(msg);
+  }
+}
+
+/** Паёми тайёр (имзошуда) аз ҳамаи каналҳо мегузарад. */
+function dispatch(msg) {
   if (S.role === 'host') {
     S.connections.forEach((c) => { if (c.open) { try { c.send(msg); } catch (e) {} } });
   } else if (S.hostConn && S.hostConn.open) {
@@ -197,7 +256,26 @@ function send(msg) {
   relaySend(msg);
 
   if (bc) { try { bc.postMessage(msg); } catch (e) {} }
-  try { localStorage.setItem(LS_KEY, JSON.stringify({ ...msg, _t: Date.now() })); } catch (e) {}
+
+  // Нусхаи localStorage танҳо барои табҳои ҳамин браузер лозим аст.
+  // Дар синфи калон навиштани ҳар паём дискро банд мекунад — маҳдуд мекунем.
+  const now = Date.now();
+  if (now - S.lastLsWrite > 250) {
+    S.lastLsWrite = now;
+    try { localStorage.setItem(LS_KEY, JSON.stringify({ ...msg, _t: now })); } catch (e) {}
+  }
+}
+
+/**
+ * Рӯйхати паёмҳои дидашуда. Дар синфи 50-нафара дар як савол садҳо паём
+ * мегузарад, бинобар ин ҳаҷм калонтар аст — вагарна паёмҳои кӯҳна аз рӯйхат
+ * мебароянд ва такроран коркард мешаванд.
+ */
+function rememberMid(mid) {
+  S.seenMsgs.add(mid);
+  if (S.seenMsgs.size > 4000) {
+    S.seenMsgs = new Set([...S.seenMsgs].slice(-1500));
+  }
 }
 
 /** Ҳамаи паёмҳо ҳамзамон аз релеи WebSocket низ мераванд. */
@@ -262,7 +340,7 @@ function initRelay() {
     S.relayTries = 0;
     client.subscribe(topics.sub, { qos: 0 }, () => {
       if (S.role === 'host') {
-        setNetState(true, 'Ҳуҷра фаъол — донишҷӯён ворид шуда метавонанд');
+        setNetState(true, t('conn.roomlive'));
         scheduleSnapshot();
       } else {
         sendJoin();
@@ -297,7 +375,7 @@ function initPeerHost() {
 
     S.peer.on('open', () => {
       S.peerEverOpened = true;
-      setNetState(true, 'Ҳуҷра фаъол — донишҷӯён ворид шуда метавонанд');
+      setNetState(true, t('conn.roomlive'));
     });
 
     S.peer.on('connection', (conn) => {
@@ -315,7 +393,7 @@ function initPeerHost() {
 
     // Алоқа бо сервер канда шуд — фавран барқарор мекунем.
     S.peer.on('disconnected', () => {
-      setNetState(false, 'Алоқа бо сервер канда шуд — барқарорсозӣ...');
+      setNetState(false, t('net.lost'));
       setTimeout(() => {
         if (S.peer && !S.peer.destroyed && S.peer.disconnected) {
           try { S.peer.reconnect(); } catch (e) {}
@@ -325,7 +403,7 @@ function initPeerHost() {
 
     // Peer тамоман пӯшида шуд — аз нав месозем (бо ҲАМОН коди ҳуҷра).
     S.peer.on('close', () => {
-      setNetState(false, 'Ҳуҷра аз нав сохта мешавад...');
+      setNetState(false, t('net.rebuild'));
       setTimeout(() => { if (S.role === 'host') initPeerHost(); }, 2000);
     });
 
@@ -339,7 +417,7 @@ function initPeerHost() {
           $('display-room-code').textContent = S.roomCode;
           window.history.replaceState({}, '',
             `${window.location.origin}${window.location.pathname}?room=${S.roomCode}`);
-          toast('Коди ҳуҷра нав карда шуд: ' + S.roomCode, 'warn');
+          toast(t('msg.newcode', { c: S.roomCode }), 'warn');
           initPeerHost();
           initRelay(); // коди ҳуҷра дигар шуд — мавзӯи релей ҳам бояд дигар шавад
         } else {
@@ -351,7 +429,7 @@ function initPeerHost() {
         return;
       }
       if (err.type === 'network' || err.type === 'server-error' || err.type === 'socket-error') {
-        setNetState(false, 'Мушкили шабака — барқарорсозӣ...');
+        setNetState(false, t('net.issue'));
         try { S.peer.destroy(); } catch (e) {}
         setTimeout(() => { if (S.role === 'host') initPeerHost(); }, 2500);
         return;
@@ -371,10 +449,10 @@ function initPeerHost() {
         if (S.peer.disconnected) {
           try { S.peer.reconnect(); } catch (e) {}
           // Агар релей кор кунад, ҳуҷра ҳанӯз ҳам зинда аст — беҳуда натарсонем.
-          if (!S.relayOk) setNetState(false, 'Алоқа бо сервер канда шуд — барқарорсозӣ...');
-          else setNetState(true, 'Ҳуҷра фаъол — донишҷӯён ворид шуда метавонанд');
+          if (!S.relayOk) setNetState(false, t('net.lost'));
+          else setNetState(true, t('conn.roomlive'));
         } else if (S.peer.open || S.relayOk) {
-          setNetState(true, 'Ҳуҷра фаъол — донишҷӯён ворид шуда метавонанд');
+          setNetState(true, t('conn.roomlive'));
         }
       }, 5000);
     }
@@ -389,7 +467,7 @@ function setNetState(ok, text) {
   S.netOk = ok;
   showConnState(text, ok);
   if (prev === true && ok === false) toast(text, 'warn');
-  if (prev === false && ok === true) toast('Алоқа барқарор шуд ✓', 'ok');
+  if (prev === false && ok === true) toast(t('net.restored'), 'ok');
 }
 
 /**
@@ -414,7 +492,7 @@ function initPeerStudent() {
 
     if (linked && known) {
       tries = 0;
-      if (!S.netOk) setNetState(true, 'Пайваст фаъол');
+      if (!S.netOk) setNetState(true, t('conn.active'));
       return;
     }
 
@@ -423,9 +501,9 @@ function initPeerStudent() {
     connectToHost();
     sendJoin();
 
-    if (tries === 6) showConnState('Ҳуҷра ёфт нашудааст — кӯшиш идома дорад...', false);
+    if (tries === 6) showConnState(t('net.notfound'), false);
     if (tries > 20 && tries % 10 === 0) {
-      showConnState('Пайваст барқарор намешавад. Интернетро санҷед ё саҳифаро нав кунед.', false);
+      showConnState(t('net.failed'), false);
     }
   }, 2000);
 
@@ -438,12 +516,12 @@ function initPeerStudent() {
     if (silent && S.phase !== 'ended') {
       if (!S.warnedLost) {
         S.warnedLost = true;
-        toast('Пайваст бо муаллим суст аст — барқарорсозӣ...', 'warn');
+        toast(t('net.weak'), 'warn');
       }
       send({ type: 'SYNC_REQ', studentId: S.myId });
     } else if (!silent && S.warnedLost) {
       S.warnedLost = false;
-      toast('Пайваст барқарор шуд', 'ok');
+      toast(t('net.ok'), 'ok');
     }
   }, 5000);
 }
@@ -456,7 +534,7 @@ function createStudentPeer() {
     S.peer.on('open', () => connectToHost());
 
     S.peer.on('disconnected', () => {
-      if (!S.relayOk) setNetState(false, 'Алоқа канда шуд — барқарорсозӣ...');
+      if (!S.relayOk) setNetState(false, t('net.cut'));
       try { S.peer.reconnect(); } catch (e) {}
     });
 
@@ -505,7 +583,7 @@ function connectToHost() {
       S.connecting = 0;
       if (S.pendingConn === conn) S.pendingConn = null;
       S.hostConn = conn;
-      setNetState(true, 'Пайваст бо муаллим барқарор шуд');
+      setNetState(true, t('net.hostback'));
       sendJoin();
       send({ type: 'SYNC_REQ', studentId: S.myId });
     });
@@ -514,7 +592,7 @@ function connectToHost() {
       if (S.hostConn === conn) S.hostConn = null;
       if (S.pendingConn === conn) S.pendingConn = null;
       // Агар релей кор кунад, бозӣ давом дорад — донишҷӯро бе сабаб натарсонем.
-      if (!linkUp()) setNetState(false, 'Пайваст бо муаллим қатъ шуд — барқарорсозӣ...');
+      if (!linkUp()) setNetState(false, t('net.hostlost'));
     });
     conn.on('error', () => {
       if (S.hostConn === conn) S.hostConn = null;
@@ -527,7 +605,14 @@ function connectToHost() {
 }
 
 function sendJoin() {
-  send({ type: 'JOIN', studentId: S.myId, name: S.userName });
+  // Калиди кушоди донишҷӯ дар JOIN меравад ва дар тарафи муаллим «мехкӯб»
+  // мешавад — баъд аз ин ҳеҷ кас бо номи ин донишҷӯ ҷавоб фиристода наметавонад.
+  send({
+    type: 'JOIN',
+    studentId: S.myId,
+    name: S.userName,
+    spub: (S.keys && S.keys.pub) || null
+  });
 }
 
 function showConnState(text, ok) {
@@ -550,10 +635,73 @@ function handleNetworkMessage(msg) {
   if (S.phase === 'idle') return;
   if (msg.mid) {
     if (S.seenMsgs.has(msg.mid)) return;
-    S.seenMsgs.add(msg.mid);
-    if (S.seenMsgs.size > 500) S.seenMsgs = new Set([...S.seenMsgs].slice(-200));
+    rememberMid(msg.mid);
   }
 
+  // `authorize` ё ҷавоби омодаи boolean медиҳад (вақте тафтиш лозим нест),
+  // ё Promise. Дар ҳолати аввал фавран роҳнамоӣ мекунем — то паём як такти
+  // иловагӣ дер накунад ва мантиқ синхронӣ монад.
+  const verdict = authorize(msg);
+  if (verdict === true) { route(msg); return; }
+  if (verdict === false) return;
+  verdict.then((ok) => { if (ok) route(msg); });
+}
+
+/**
+ * Оё ин паём воқеан аз касе, ки худро вонамуд мекунад, омадааст?
+ *
+ * • Донишҷӯ: ҳамаи паёмҳои муаллим бояд бо калиди муаллим имзо шуда бошанд.
+ *   Калид аз линк (`#k=...`) гирифта мешавад; агар донишҷӯ бо коди дастӣ
+ *   ворид шуда бошад, калиди аввалин муаллим «мехкӯб» мешавад ва баъд
+ *   иваз намешавад.
+ * • Муаллим: ҳар донишҷӯ ҳангоми JOIN калиди худро медиҳад; баъдтар
+ *   ҳамаи паёмҳояш бо ҳамон калид тафтиш мешаванд — то як донишҷӯ ба ҷои
+ *   дигаре ҷавоб фиристода натавонад.
+ */
+function authorize(msg) {
+  if (!window.QuizAuth || !QuizAuth.cryptoAvailable()) return true;
+
+  if (S.role === 'student') {
+    if (!S.hostPubKey) {
+      // TOFU: калиди аввалинро қабул мекунем, баъд дигар иваз намешавад.
+      if (!msg.pub) return false;
+      return QuizAuth.importPublicKey(msg.pub).then((key) => {
+        if (!key) return false;
+        return QuizAuth.verifyMessage(key, msg).then((ok) => {
+          if (ok) { S.hostPubKey = key; S.hostPubB64 = msg.pub; }
+          return ok;
+        });
+      });
+    }
+    if (msg.pub && msg.pub !== S.hostPubB64) return false;
+    return QuizAuth.verifyMessage(S.hostPubKey, msg);
+  }
+
+  if (S.role === 'host') {
+    if (msg.type === 'JOIN') {
+      if (!msg.spub) return true; // браузери бе крипто
+      const known = S.participants.find((x) => x.id === msg.studentId);
+      // Агар ин ID аллакай калиди дигар дошта бошад — касе худро ба ҷои
+      // донишҷӯи мавҷуда вонамуд мекунад. Рад мекунем.
+      if (known && known.pub && known.pub !== msg.spub) return false;
+      return QuizAuth.importPublicKey(msg.spub).then((key) => {
+        if (!key) return false;
+        return QuizAuth.verifyMessage(key, msg).then((ok) => {
+          if (ok) msg._key = key;
+          return ok;
+        });
+      });
+    }
+    const p = S.participants.find((x) => x.id === msg.studentId);
+    if (!p) return false;
+    if (!p.key) return true; // донишҷӯи бе крипто (браузери кӯҳна)
+    return QuizAuth.verifyMessage(p.key, msg);
+  }
+
+  return true;
+}
+
+function route(msg) {
   if (S.role === 'host') {
     switch (msg.type) {
       case 'JOIN':      return hostOnJoin(msg);
@@ -580,9 +728,33 @@ function handleNetworkMessage(msg) {
 /* ------------------------------------------------------------------ */
 
 document.addEventListener('DOMContentLoaded', () => {
+  applyI18n();
   initUI();
   checkUrlParams();
 });
+
+/**
+ * Пок кардани ҳамаи осори бозӣ аз ин дастгоҳ.
+ *
+ * Донишҷӯён одатан дар компютери умумии синфхона кор мекунанд. Пас аз
+ * тамом шудани бозӣ ному ID-и онҳо набояд дар браузер монад — вагарна
+ * донишҷӯи навбатӣ бо номи ҳамсинфи худ ворид мешавад.
+ * Танзими забон нигоҳ дошта мешавад.
+ */
+function clearQuizStorage() {
+  const keep = (typeof LANG_KEY !== 'undefined') ? LANG_KEY : 'quiz_lang';
+  try {
+    Object.keys(sessionStorage)
+      .filter((k) => k.indexOf('cppquiz_') === 0 || k.indexOf('quiz_') === 0)
+      .forEach((k) => { if (k !== keep) sessionStorage.removeItem(k); });
+  } catch (e) {}
+  try {
+    Object.keys(localStorage)
+      .filter((k) => k !== keep && (k === LS_KEY || k.indexOf('cppquiz_') === 0 || k.indexOf('quiz_') === 0))
+      .forEach((k) => localStorage.removeItem(k));
+  } catch (e) {}
+  S.seenMsgs = new Set();
+}
 
 function initUI() {
   $('card-role-host')?.addEventListener('click', () => selectRole('host'));
@@ -606,14 +778,31 @@ function initUI() {
   $('btn-next-question')?.addEventListener('click', hostNext);
   $('btn-reveal-now')?.addEventListener('click', () => { if (S.phase === 'question') hostReveal(); });
   $('btn-end-quiz')?.addEventListener('click', () => {
-    if (confirm('Бозиро ҳозир анҷом диҳем?')) hostEndQuiz();
+    if (confirm(t('msg.endconfirm'))) hostEndQuiz();
   });
   $('btn-restart-game')?.addEventListener('click', () => {
+    // Осори бозии гузашта тоза мешавад — то донишҷӯи навбатӣ дар ҳамин
+    // компютер бо номи ҳамсинфи худ ворид нашавад.
+    clearQuizStorage();
     // Донишҷӯе, ки бо линки муаллим омадааст, дар ҳамон ҳуҷра мемонад —
     // ӯ ҳеҷ гоҳ ба экрани интихоби нақш барнамегардад.
     window.location.href = S.lockedToStudent
       ? window.location.href
       : window.location.origin + window.location.pathname;
+  });
+
+  // Забон: ТҶ / РУ
+  $('lang-switch')?.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-lang-btn]');
+    if (!btn) return;
+    setLang(btn.getAttribute('data-lang-btn'), reRenderAfterLangChange);
+  });
+
+  $('input-host-pass')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') $('btn-create-room').click();
+  });
+  $('input-student-name')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') $('input-room-code')?.focus();
   });
   $('btn-copy-link')?.addEventListener('click', copyShareableLink);
   $('btn-sound-toggle')?.addEventListener('click', toggleSound);
@@ -628,6 +817,11 @@ function initUI() {
   });
 
   document.addEventListener('keydown', onHotkey);
+
+  // Донишҷӯ табро мебандад — осори бозӣ дар ин компютер намемонад.
+  window.addEventListener('pagehide', () => {
+    if (S.role === 'student') clearQuizStorage();
+  });
 }
 
 function onHotkey(e) {
@@ -639,16 +833,30 @@ function onHotkey(e) {
 }
 
 function initSegments() {
-  const bind = (id, key, parse) => {
+  const bind = (id, key, parse, after) => {
     const box = $(id);
     if (!box) return;
     box.addEventListener('click', (e) => {
       const btn = e.target.closest('button');
       if (!btn) return;
+      const prev = S.settings[key];
       [...box.querySelectorAll('button')].forEach((b) => b.classList.toggle('active', b === btn));
       S.settings[key] = parse(btn.dataset.val);
+      if (after && S.settings[key] !== prev) after();
     });
   };
+  bind('seg-subject', 'subject', (v) => (v === 'js' ? 'js' : 'cpp'), () => {
+    // Фан дар лобби иваз шуд — коди ҳуҷра ва линк низ бояд нав шаванд,
+    // вагарна донишҷӯён аз рӯи префикси кӯҳна бонки нодуруст мекушоянд.
+    if (S.role !== 'host' || S.phase !== 'lobby') return;
+    S.subject = S.settings.subject;
+    S.roomCode = generateRoomCode();
+    $('display-room-code').textContent = S.roomCode;
+    updateShareLink();
+    initPeerHost();
+    initRelay();
+    toast(t('msg.newcode', { c: S.roomCode }), 'warn');
+  });
   bind('seg-duration', 'duration', (v) => parseInt(v, 10));
   bind('seg-count', 'count', (v) => parseInt(v, 10));
   bind('seg-shuffle', 'shuffle', (v) => v === '1');
@@ -666,6 +874,17 @@ function checkUrlParams() {
   S.lockedToStudent = true;
   S.role = 'student';
   S.roomCode = room.trim().toUpperCase();
+  S.subject = /^JS-/i.test(S.roomCode) ? 'js' : 'cpp';
+
+  // Калиди кушоди муаллим дар қисми `#` аст — он ба ҳеҷ сервер намеравад.
+  const hash = (window.location.hash || '').replace(/^#/, '');
+  const k = new URLSearchParams(hash).get('k');
+  if (k) {
+    S.hostPubB64 = k;
+    if (window.QuizAuth) {
+      QuizAuth.importPublicKey(k).then((key) => { S.hostPubKey = key; });
+    }
+  }
 
   show($('role-picker'), false);
   show($('join-by-link'), true);
@@ -683,6 +902,47 @@ function selectRole(role) {
   $('card-role-student')?.classList.toggle('active', role === 'student');
   show($('form-host'), role === 'host');
   show($('form-student'), role === 'student');
+  if (role === 'host') setTimeout(() => $('input-host-pass')?.focus(), 120);
+}
+
+/**
+ * Дарвозаи муаллим. Бе пароли дуруст ҳуҷра сохта намешавад.
+ * Баъди чанд кӯшиши нодуруст майдон муваққатан баста мешавад — то паролро
+ * бо роҳи озмоиш ёфта натавонанд.
+ */
+function adminGateOk() {
+  const cfg = window.QUIZ_CONFIG || {};
+  const now = Date.now();
+
+  if (S.adminLockUntil > now) {
+    toast(t('host.locked', { n: Math.ceil((S.adminLockUntil - now) / 1000) }), 'warn');
+    return false;
+  }
+
+  const pass = ($('input-host-pass')?.value || '');
+  if (!pass) { toast(t('host.passempty'), 'warn'); $('input-host-pass')?.focus(); return false; }
+
+  if (!window.QuizAuth || !QuizAuth.checkAdminPassword(pass)) {
+    S.adminTries += 1;
+    const left = Math.max(0, (cfg.maxAdminTries || 5) - S.adminTries);
+    if (left <= 0) {
+      S.adminLockUntil = now + (cfg.lockoutMs || 60000);
+      S.adminTries = 0;
+      toast(t('host.locked', { n: Math.ceil((cfg.lockoutMs || 60000) / 1000) }), 'bad');
+    } else {
+      toast(t('host.passwrong', { n: left }), 'bad');
+    }
+    const el = $('input-host-pass');
+    if (el) { el.value = ''; el.focus(); }
+    return false;
+  }
+
+  S.adminTries = 0;
+  S.adminOk = true;
+  // Паролро дар ҳеҷ ҷо нигоҳ намедорем ва аз майдон фавран пок мекунем.
+  const el = $('input-host-pass');
+  if (el) el.value = '';
+  return true;
 }
 
 function toggleSound() {
@@ -693,7 +953,9 @@ function toggleSound() {
 
 function generateRoomCode() {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  let code = 'CPP-';
+  // Префикс фанро нишон медиҳад: донишҷӯ аз рӯи код мефаҳмад,
+  // ки кадом бонки савол лозим аст (CPP-.... ё JS-....).
+  let code = (SUBJECTS[S.subject] || SUBJECTS.cpp).prefix + '-';
   for (let i = 0; i < 4; i++) code += chars.charAt(Math.floor(Math.random() * chars.length));
   return code;
 }
@@ -710,12 +972,32 @@ function showScreen(id) {
 /* ------------------------------------------------------------------ */
 
 function createRoom() {
+  // Касе, ки бо линки даъват омадааст, дар ҳеҷ ҳолат муаллим шуда
+  // наметавонад — ҳатто агар функсияро аз консол даъват кунад.
+  // Муаллим барои ҳуҷраи нав саҳифаи асосиро (бе ?room=) мекушояд.
+  if (S.lockedToStudent) return;
+
+  // Дарвоза: бе пароли дуруст пеш намеравем.
+  if (!S.adminOk && !adminGateOk()) return;
+
   S.role = 'host';
   S.myId = 'host';
-  S.userName = ($('input-host-name').value || '').trim() || 'Муаллим';
+  S.userName = ($('input-host-name').value || '').trim() || t('role.host.title');
+  S.subject = S.settings.subject || 'cpp';
   S.roomCode = generateRoomCode();
   S.phase = 'lobby';
   S.participants = [];
+
+  // Ҷуфти калид барои имзои паёмҳо. Калиди махфӣ аз ин дастгоҳ берун намеравад.
+  if (window.QuizAuth && QuizAuth.cryptoAvailable()) {
+    QuizAuth.generateKeyPair().then((kp) => {
+      S.keys = kp;
+      updateShareLink();
+      broadcastRoster();
+    });
+  } else {
+    console.warn('[quiz] crypto.subtle нест — имзо хомӯш. Сайтро аз https:// кушоед.');
+  }
 
   showScreen('screen-lobby');
   $('display-room-code').textContent = S.roomCode;
@@ -727,9 +1009,7 @@ function createRoom() {
 
   initPeerHost();
   initRelay();
-
-  const url = `${window.location.origin}${window.location.pathname}?room=${S.roomCode}`;
-  window.history.replaceState({}, '', url);
+  updateShareLink();
 
   setInterval(() => {
     if (S.role !== 'host') return;
@@ -738,18 +1018,32 @@ function createRoom() {
   }, 5000);
 }
 
+/**
+ * Линки даъват. Калиди кушоди муаллим пас аз `#` меравад — қисми `#`-и URL
+ * ба ҳеҷ сервер фиристода намешавад ва танҳо дар браузери донишҷӯ мемонад.
+ */
+function shareLink() {
+  const base = `${window.location.origin}${window.location.pathname}?room=${S.roomCode}`;
+  return S.keys && S.keys.pub ? `${base}#k=${S.keys.pub}` : base;
+}
+
+function updateShareLink() {
+  if (S.role !== 'host') return;
+  try { window.history.replaceState({}, '', shareLink()); } catch (e) {}
+}
+
 function copyShareableLink() {
-  const link = `${window.location.origin}${window.location.pathname}?room=${S.roomCode}`;
+  const link = shareLink();
   const done = () => {
     const btn = $('btn-copy-link');
-    const orig = btn.textContent;
-    btn.textContent = '✓ Линк нусхабардорӣ шуд!';
-    setTimeout(() => (btn.textContent = orig), 2500);
+    const orig = btn.innerHTML;
+    btn.textContent = t('btn.copied');
+    setTimeout(() => (btn.innerHTML = orig), 2500);
   };
   if (navigator.clipboard) {
-    navigator.clipboard.writeText(link).then(done).catch(() => prompt('Линки ҳуҷра:', link));
+    navigator.clipboard.writeText(link).then(done).catch(() => prompt(t('btn.copylink'), link));
   } else {
-    prompt('Линки ҳуҷра:', link);
+    prompt(t('btn.copylink'), link);
   }
 }
 
@@ -761,12 +1055,13 @@ function joinRoom(rawName, rawRoom) {
   const name = (rawName || '').trim();
   const room = (rawRoom || '').trim().toUpperCase();
 
-  if (name.length < 2) { toast('Лутфан, номи худро дуруст нависед!', 'warn'); return; }
-  if (!room) { toast('Лутфан, коди ҳуҷраро ворид кунед!', 'warn'); return; }
+  if (name.length < 2) { toast(t('msg.badname'), 'warn'); return; }
+  if (!room) { toast(t('msg.badroom'), 'warn'); return; }
 
   S.role = 'student';
   S.userName = name;
   S.roomCode = room;
+  S.subject = /^JS-/i.test(room) ? 'js' : 'cpp';
   S.phase = 'lobby';
 
   const key = 'cppquiz_id_' + room;
@@ -780,10 +1075,16 @@ function joinRoom(rawName, rawRoom) {
   show($('host-settings'), false);
   show($('host-controls'), false);
   show($('student-lobby-msg'), true);
-  showConnState('Пайвастшавӣ ба ҳуҷра...', false);
+  showConnState(t('conn.joining'), false);
 
-  initRelay();
-  initPeerStudent();
+  // Калиди шахсии донишҷӯ — то касе ба ҷои ӯ ҷавоб фиристода натавонад.
+  // Пайвастшавӣ пас аз тайёр шудани калид оғоз мешавад.
+  const start = () => { initRelay(); initPeerStudent(); };
+  if (window.QuizAuth && QuizAuth.cryptoAvailable()) {
+    QuizAuth.generateKeyPair().then((kp) => { S.keys = kp; start(); }).catch(start);
+  } else {
+    start();
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -798,7 +1099,11 @@ function hostOnJoin(msg) {
     p.online = true;
     p.lastSeen = Date.now();
     p.name = String(msg.name).slice(0, 28);
+    if (msg._key && !p.key) { p.key = msg._key; p.pub = msg.spub; }
   } else {
+    const limit = (window.QUIZ_CONFIG && QUIZ_CONFIG.maxStudents) || 120;
+    if (S.participants.length >= limit) { toast(t('msg.roomfull'), 'warn'); return; }
+
     let name = String(msg.name).slice(0, 28);
     let n = 2;
     while (S.participants.some((x) => x.name === name)) name = `${String(msg.name).slice(0, 24)} (${n++})`;
@@ -810,16 +1115,18 @@ function hostOnJoin(msg) {
       streak: 0,
       answers: [],
       online: true,
-      lastSeen: Date.now()
+      lastSeen: Date.now(),
+      key: msg._key || null,   // калиди кушоди ин донишҷӯ (мехкӯб мешавад)
+      pub: msg.spub || null
     };
     S.participants.push(p);
     playSound('join');
-    toast(`${p.name} ворид шуд`, 'ok');
+    toast(t('msg.joined', { n: p.name }), 'ok');
   }
 
   updateParticipantsUI();
   updateAdminPanel();
-  sendStateSnapshot(); // вуруди нав — ҳама бояд фавран бинанд
+  scheduleSnapshot(); // вуруди нав — ҳама бояд бинанд (бо танзими сарборӣ)
 }
 
 function hostOnHeartbeat(msg) {
@@ -840,13 +1147,13 @@ function pruneOffline() {
 function hostKick(id) {
   const p = S.participants.find((x) => x.id === id);
   if (!p) return;
-  if (!confirm(`"${p.name}"-ро аз ҳуҷра берун кунем?`)) return;
+  if (!confirm(t('msg.kickconfirm', { n: p.name }))) return;
   S.participants = S.participants.filter((x) => x.id !== id);
   send({ type: 'KICK', studentId: id });
   updateParticipantsUI();
   updateAdminPanel();
   broadcastRoster();
-  toast(`${p.name} хориҷ шуд`, 'warn');
+  toast(t('msg.kicked', { n: p.name }), 'warn');
 }
 
 function rosterPayload() {
@@ -860,8 +1167,55 @@ function rosterPayload() {
   }));
 }
 
-function broadcastRoster() {
-  send({ type: 'ROSTER', participants: rosterPayload(), phase: S.phase });
+/**
+ * Рӯйхати иштирокчиён.
+ *
+ * Дар синфи 50-нафара ин рӯйхат ~6 КБ аст. Агар онро ҳар дафъа фиристем,
+ * канал банд мешавад ва ҷавобҳои донишҷӯён дер мерасанд. Бинобар ин:
+ *   • танҳо ҳангоми воқеан тағйир ёфтан фиристода мешавад;
+ *   • на бештар аз як маротиба дар 1.2 сония.
+ */
+function broadcastRoster(force) {
+  if (S.role !== 'host') return;
+
+  const payload = rosterPayload();
+  const hash = JSON.stringify(payload) + '|' + S.phase;
+
+  // `force` — вуруди нав ё синхронизатсияи дастӣ: бояд фавран равад,
+  // ҳатто агар рӯйхат тағйир наёфта бошад ё таймер фаъол бошад.
+  if (!force) {
+    if (hash === S.lastRosterHash) return;
+    if (S.rosterTimer) { S.rosterPending = true; return; }
+  }
+
+  S.lastRosterHash = hash;
+  clearTimeout(S.rosterTimer);
+  send({ type: 'ROSTER', participants: payload, phase: S.phase });
+
+  S.rosterTimer = setTimeout(() => {
+    S.rosterTimer = null;
+    if (S.rosterPending) { S.rosterPending = false; broadcastRoster(); }
+  }, 1200);
+}
+
+/**
+ * Хабари «кӣ ҷавоб дод». Ҳангоми савол 50 донишҷӯ дар чанд сония ҷавоб
+ * медиҳанд — агар ба ҳар ҷавоб як паёми алоҳида фиристем, 50 паёми калон
+ * мешавад. Онҳоро дар 400 мс ҷамъ карда, яктоӣ мефиристем.
+ */
+function broadcastAnswered() {
+  if (S.role !== 'host') return;
+  if (S.answeredTimer) { S.answeredPending = true; return; }
+
+  sendAnsweredNow();
+  S.answeredTimer = setTimeout(() => {
+    S.answeredTimer = null;
+    if (S.answeredPending) { S.answeredPending = false; broadcastAnswered(); }
+  }, 400);
+}
+
+function sendAnsweredNow() {
+  send({ type: 'ANSWERED', pos: S.qPos, ids: S.answeredIds, total: onlineCount() });
 }
 
 /**
@@ -873,7 +1227,7 @@ function broadcastRoster() {
 function scheduleSnapshot() {
   if (S.role !== 'host') return;
   const now = Date.now();
-  const wait = 400 - (now - (S.lastSnapshotAt || 0));
+  const wait = 700 - (now - (S.lastSnapshotAt || 0));
 
   if (wait <= 0) {
     S.lastSnapshotAt = now;
@@ -891,7 +1245,7 @@ function scheduleSnapshot() {
 /** Ба донишҷӯи нав/бозпайвастшуда ҳолати ҷориро мефиристад. */
 function sendStateSnapshot() {
   if (S.role !== 'host') return;
-  broadcastRoster();
+  broadcastRoster(true);
 
   if (S.phase === 'question') {
     send({
@@ -902,7 +1256,7 @@ function sendStateSnapshot() {
       duration: S.duration,
       remaining: Math.max(0, S.endsAt - Date.now())
     });
-    send({ type: 'ANSWERED', pos: S.qPos, ids: S.answeredIds, total: onlineCount() });
+    sendAnsweredNow();
   } else if (S.phase === 'reveal' && S.reveal) {
     send(S.reveal);
   } else if (S.phase === 'ended') {
@@ -933,7 +1287,7 @@ function updateParticipantsUI() {
     chip.innerHTML = `
       <div class="participant-avatar">${escapeHtml(p.name.charAt(0).toUpperCase())}</div>
       <span class="participant-name">${escapeHtml(p.name)}</span>
-      ${S.role === 'host' ? `<button class="kick-btn" title="Хориҷ кардан" data-id="${escapeHtml(p.id)}">✕</button>` : ''}
+      ${S.role === 'host' ? `<button class="kick-btn" title="${escapeHtml(t('title.kick'))}" data-id="${escapeHtml(p.id)}">✕</button>` : ''}
     `;
     const kick = chip.querySelector('.kick-btn');
     if (kick) kick.addEventListener('click', () => hostKick(p.id));
@@ -947,16 +1301,17 @@ function studentOnRoster(msg) {
   // Диққат: ҳалқаи такрорро НАМЕбандем — агар алоқа баъдтар канда шавад,
   // худи ҳамон ҳалқа пайвастро барқарор мекунад.
   if (S.participants.some((p) => p.id === S.myId) && !S.netOk) {
-    setNetState(true, 'Пайваст фаъол');
+    setNetState(true, t('conn.active'));
   }
 }
 
 function studentOnKick(msg) {
   if (msg.studentId !== S.myId) return;
   clearInterval(S.tick);
+  clearQuizStorage();
   document.body.innerHTML = '<div class="kicked-screen"><div style="font-size:3rem">🚪</div>' +
-    '<h2>Шумо аз ҳуҷра хориҷ шудед</h2>' +
-    '<p>Барои бозгашт бо муаллим тамос гиред.</p></div>';
+    '<h2>' + escapeHtml(t('kick.title')) + '</h2>' +
+    '<p>' + escapeHtml(t('kick.sub')) + '</p></div>';
 }
 
 /* ------------------------------------------------------------------ */
@@ -965,11 +1320,12 @@ function studentOnKick(msg) {
 
 function hostStartQuiz() {
   if (S.participants.length === 0) {
-    if (!confirm('Ҳанӯз ягон донишҷӯ ворид нашудааст. Ба ҳар ҳол оғоз кунем?')) return;
+    if (!confirm(t('msg.nostudents'))) return;
   }
 
   S.duration = S.settings.duration;
-  let idx = cppQuestions.map((_, i) => i);
+  const QB = bank();
+  let idx = QB.map((_, i) => i);
   if (S.settings.shuffle) {
     for (let i = idx.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
@@ -1017,7 +1373,7 @@ function hostOnAnswer(msg) {
   p.online = true;
   p.lastSeen = Date.now();
 
-  const q = cppQuestions[S.order[S.qPos]];
+  const q = Q(S.order[S.qPos]);
   const totalMs = S.duration * 1000;
   const remaining = Math.max(0, S.endsAt - Date.now());
   const ratio = Math.max(0, Math.min(1, remaining / totalMs));
@@ -1042,7 +1398,7 @@ function hostOnAnswer(msg) {
   });
 
   S.answeredIds.push(p.id);
-  send({ type: 'ANSWERED', pos: S.qPos, ids: S.answeredIds, total: onlineCount() });
+  broadcastAnswered();
   updateAdminPanel();
 
   const online = S.participants.filter((x) => x.online);
@@ -1058,7 +1414,7 @@ function hostReveal() {
   clearTimeout(S.revealTimeout);
   S.phase = 'reveal';
 
-  const q = cppQuestions[S.order[S.qPos]];
+  const q = Q(S.order[S.qPos]);
   const counts = [0, 0, 0, 0];
   const results = {};
 
@@ -1156,11 +1512,11 @@ function onStudentTimeUp() {
   const box = $('answer-status');
   if (box && !S.myAnswer) {
     box.className = 'answer-status neutral';
-    box.innerHTML = '⏰ <strong>Вақт тамом шуд.</strong> Шумо ҷавоб надодед — мунтазири натиҷа бошед...';
+    box.innerHTML = t('q.timeup');
     show(box, true);
   } else if (box) {
     box.className = 'answer-status neutral';
-    box.innerHTML = '⏳ Вақт тамом — муаллим натиҷаро мекушояд...';
+    box.innerHTML = t('q.waitreveal');
   }
   document.querySelectorAll('.option-btn').forEach((b) => (b.disabled = true));
 }
@@ -1180,6 +1536,51 @@ function studentOnEnd(msg) {
   S.phase = 'ended';
   clearInterval(S.tick);
   showLeaderboard(msg.standings || [], msg.total || 0);
+
+  // Бозӣ тамом шуд — ному ID-и донишҷӯ дигар лозим нест ва аз ин дастгоҳ
+  // тоза мешавад. Натиҷаҳо дар экран мемонанд (дар хотираи саҳифа).
+  clearQuizStorage();
+}
+
+/** Забон иваз шуд — ҳамаи қисмҳои динамикӣ аз нав кашида мешаванд. */
+function reRenderAfterLangChange() {
+  if (S.phase === 'lobby' || S.phase === 'idle') {
+    updateParticipantsUI();
+    return;
+  }
+  if (S.phase === 'question' || S.phase === 'reveal') {
+    const qIndex = S.order[S.qPos];
+    if (qIndex !== undefined) {
+      renderQuestion(qIndex, S.qPos, S.order.length || S.totalQ);
+      if (S.phase === 'reveal' && S.reveal) renderReveal(S.reveal);
+      else if (S.role === 'student' && S.myAnswer) restoreMyAnswerUI();
+    }
+    updateAdminPanel();
+    return;
+  }
+  if (S.phase === 'ended') showLeaderboard(S.standings || [], S.totalQ);
+}
+
+/** Пас аз аз нав кашидани савол ҳолати «ҷавоб додам»-ро барқарор мекунад. */
+function restoreMyAnswerUI() {
+  if (!S.myAnswer) return;
+  const idx = S.myAnswer.opt;
+  document.querySelectorAll('.option-btn').forEach((btn, i) => {
+    btn.disabled = true;
+    btn.classList.toggle('selected', i === idx);
+    if (i !== idx) btn.classList.add('dimmed');
+  });
+  const box = $('answer-status');
+  if (!box) return;
+  box.className = 'answer-status pending';
+  box.innerHTML = `
+    <span class="pending-badge">${LETTERS[idx]}</span>
+    <div>
+      <strong>${escapeHtml(t('ans.accepted'))}</strong>
+      <p>${escapeHtml(t('ans.acceptedsub'))}</p>
+    </div>
+    <span class="spinner"></span>`;
+  show(box, true);
 }
 
 /* ------------------------------------------------------------------ */
@@ -1213,15 +1614,15 @@ function startCountdown(onEnd) {
 /* ------------------------------------------------------------------ */
 
 function renderQuestion(qIndex, pos, total) {
-  const q = cppQuestions[qIndex];
+  const q = Q(qIndex);
   if (!q) return;
 
   showScreen('screen-quiz');
   const isHost = S.role === 'host';
 
-  $('q-counter').textContent = `Саволи ${pos + 1} аз ${total}`;
-  $('q-category').textContent = q.category;
-  $('q-title').textContent = q.question;
+  $('q-counter').textContent = t('q.counter', { n: pos + 1, t: total });
+  $('q-category').textContent = L(q.category);
+  $('q-title').textContent = L(q.question);
 
   const code = $('q-code');
   if (q.code) { code.textContent = q.code; show(code, true); } else { show(code, false); }
@@ -1255,7 +1656,7 @@ function renderStudentOptions(q) {
     const btn = document.createElement('button');
     btn.className = 'option-btn';
     btn.dataset.idx = i;
-    btn.innerHTML = `<span class="option-badge">${LETTERS[i]}</span><span>${escapeHtml(text)}</span>`;
+    btn.innerHTML = `<span class="option-badge">${LETTERS[i]}</span><span>${escapeHtml(L(text))}</span>`;
     btn.addEventListener('click', () => selectOption(i));
     grid.appendChild(btn);
   });
@@ -1273,8 +1674,8 @@ function renderHostOptions(q, revealed) {
     return `
       <div class="host-option ${isCorrect ? 'is-correct' : ''} ${revealed && !isCorrect && counts[i] ? 'is-wrong' : ''}">
         <span class="option-badge">${LETTERS[i]}</span>
-        <span class="host-option-text">${escapeHtml(text)}</span>
-        ${isCorrect ? '<span class="correct-tag">ҶАВОБИ ДУРУСТ</span>' : ''}
+        <span class="host-option-text">${escapeHtml(L(text))}</span>
+        ${isCorrect ? `<span class="correct-tag">${escapeHtml(t('tag.correct'))}</span>` : ''}
         <span class="host-option-count">${counts[i]}</span>
         <div class="host-option-bar" style="width:${counts[i] ? pct : 0}%"></div>
       </div>`;
@@ -1311,8 +1712,8 @@ function selectOption(optionIndex) {
   box.innerHTML = `
     <span class="pending-badge">${LETTERS[optionIndex]}</span>
     <div>
-      <strong>Ҷавоби шумо қабул шуд.</strong>
-      <p>Дурустии ҷавоб пас аз тамом шудани вақт нишон дода мешавад — сабр кунед.</p>
+      <strong>${escapeHtml(t('ans.accepted'))}</strong>
+      <p>${escapeHtml(t('ans.acceptedsub'))}</p>
     </div>
     <span class="spinner"></span>`;
   show(box, true);
@@ -1326,17 +1727,17 @@ function selectOption(optionIndex) {
 /* ------------------------------------------------------------------ */
 
 function renderReveal(rev) {
-  const q = cppQuestions[rev.qIndex];
+  const q = Q(rev.qIndex);
   if (!q) return;
 
   if (S.role === 'host') {
     renderHostOptions(q, true);
     const exp = $('explanation-box');
-    exp.innerHTML = `<strong>💡 Шарҳ:</strong> ${escapeHtml(q.explanation)}`;
+    exp.innerHTML = `<strong>${escapeHtml(t('rev.explain'))}</strong> ${escapeHtml(L(q.explanation))}`;
     show(exp, true);
     updateAdminPanel();
     const btn = $('btn-next-question');
-    if (btn) btn.textContent = rev.isLast ? '🏁 Ҷадвали рейтинг' : 'Навбатӣ ➔';
+    if (btn) btn.textContent = rev.isLast ? t('btn.tolb') : t('btn.next');
     return;
   }
 
@@ -1350,27 +1751,30 @@ function renderReveal(rev) {
 
   const box = $('answer-status');
   const myStanding = (rev.standings || []).find((s) => s.id === S.myId);
-  const rankTxt = myStanding ? ` · Ҷои ${myStanding.rank} · ${myStanding.score} бал` : '';
+  const rankTxt = myStanding
+    ? t('rev.rank', { r: myStanding.rank, s: myStanding.score })
+    : '';
+  const rightTxt = t('rev.right', { l: LETTERS[rev.correct] });
 
   if (!mine) {
     box.className = 'answer-status neutral';
-    box.innerHTML = `<span class="pending-badge">—</span><div><strong>Шумо ҷавоб надодед.</strong>
-      <p>Ҷавоби дуруст: <b>${LETTERS[rev.correct]}</b>${escapeHtml(rankTxt)}</p></div>`;
+    box.innerHTML = `<span class="pending-badge">—</span><div><strong>${escapeHtml(t('rev.none'))}</strong>
+      <p>${rightTxt}${escapeHtml(rankTxt)}</p></div>`;
   } else if (mine.ok) {
     box.className = 'answer-status good';
-    box.innerHTML = `<span class="pending-badge">✓</span><div><strong>Офарин! Ҷавоб дуруст аст.</strong>
-      <p>+${mine.points} бал${escapeHtml(rankTxt)}</p></div>`;
+    box.innerHTML = `<span class="pending-badge">✓</span><div><strong>${escapeHtml(t('rev.good'))}</strong>
+      <p>${escapeHtml(t('rev.points', { p: mine.points }))}${escapeHtml(rankTxt)}</p></div>`;
     playSound('correct');
   } else {
     box.className = 'answer-status bad';
-    box.innerHTML = `<span class="pending-badge">✕</span><div><strong>Ҷавоб нодуруст.</strong>
-      <p>Ҷавоби дуруст: <b>${LETTERS[rev.correct]}</b>${escapeHtml(rankTxt)}</p></div>`;
+    box.innerHTML = `<span class="pending-badge">✕</span><div><strong>${escapeHtml(t('rev.bad'))}</strong>
+      <p>${rightTxt}${escapeHtml(rankTxt)}</p></div>`;
     playSound('incorrect');
   }
   show(box, true);
 
   const exp = $('explanation-box');
-  exp.innerHTML = `<strong>💡 Шарҳ:</strong> ${escapeHtml(q.explanation)}`;
+  exp.innerHTML = `<strong>${escapeHtml(t('rev.explain'))}</strong> ${escapeHtml(L(q.explanation))}`;
   show(exp, true);
 
   const disp = $('timer-display');
@@ -1390,7 +1794,7 @@ function updateAdminPanel() {
   $('answered-count').textContent = `${S.answeredIds.length}/${S.participants.length}`;
 
   const counts = S.phase === 'reveal' && S.reveal ? S.reveal.counts : liveCounts();
-  const q = cppQuestions[S.order[S.qPos]];
+  const q = Q(S.order[S.qPos]);
   if (q) {
     const okCount = counts[q.correct] || 0;
     const totalAns = counts.reduce((a, b) => a + b, 0);
@@ -1415,7 +1819,7 @@ function updateAdminPanel() {
     body.innerHTML = sorted.map((p) => {
       const a = p.answers.find((x) => x.pos === S.qPos);
       let cell;
-      if (!a) cell = '<span class="chip waiting">интизор</span>';
+      if (!a) cell = `<span class="chip waiting">${escapeHtml(t('chip.waiting'))}</span>`;
       else if (S.phase === 'reveal') cell = `<span class="chip ${a.ok ? 'ok' : 'bad'}">${LETTERS[a.opt]} ${a.ok ? '✓' : '✕'}</span>`;
       else cell = `<span class="chip picked">${LETTERS[a.opt]}</span>`;
 
@@ -1423,9 +1827,9 @@ function updateAdminPanel() {
         <td><span class="dot ${p.online ? 'on' : 'off'}"></span>${escapeHtml(p.name)}</td>
         <td>${cell}</td>
         <td class="num">${p.score}</td>
-        <td><button class="kick-btn sm" data-id="${escapeHtml(p.id)}" title="Хориҷ кардан">✕</button></td>
+        <td><button class="kick-btn sm" data-id="${escapeHtml(p.id)}" title="${escapeHtml(t('title.kick'))}">✕</button></td>
       </tr>`;
-    }).join('') || '<tr><td colspan="4" class="empty-row">Ҳанӯз донишҷӯ нест</td></tr>';
+    }).join('') || `<tr><td colspan="4" class="empty-row">${escapeHtml(t('monitor.empty'))}</td></tr>`;
 
     body.querySelectorAll('.kick-btn').forEach((b) => {
       b.addEventListener('click', () => hostKick(b.dataset.id));
@@ -1442,7 +1846,7 @@ function showLeaderboard(standings, totalQuestions) {
   playSound('win');
   triggerConfetti();
 
-  const total = totalQuestions || S.order.length || S.totalQ || cppQuestions.length;
+  const total = totalQuestions || S.order.length || S.totalQ || bank().length;
 
   const podium = $('podium-container');
   if (podium) {
@@ -1458,7 +1862,7 @@ function showLeaderboard(standings, totalQuestions) {
       step.innerHTML = `
         <div class="podium-avatar">${medals[i]}</div>
         <div class="podium-name">${escapeHtml(p.name)}</div>
-        <div class="podium-score">${p.score} бал</div>
+        <div class="podium-score">${escapeHtml(t('lb.points', { p: p.score }))}</div>
         <div class="podium-pillar">${nums[i]}</div>`;
       podium.appendChild(step);
     });
@@ -1473,11 +1877,11 @@ function showLeaderboard(standings, totalQuestions) {
       const isMe = p.id === S.myId ? ' class="me-row"' : '';
       return `<tr${isMe}>
         <td><span class="rank-badge ${rankClass}">${i + 1}</span></td>
-        <td><strong>${escapeHtml(p.name)}</strong>${p.id === S.myId ? ' <span class="you-tag">шумо</span>' : ''}</td>
-        <td>${p.score} бал</td>
+        <td><strong>${escapeHtml(p.name)}</strong>${p.id === S.myId ? ` <span class="you-tag">${escapeHtml(t('lb.you'))}</span>` : ''}</td>
+        <td>${escapeHtml(t('lb.points', { p: p.score }))}</td>
         <td>${correct} / ${total} (${acc}%)</td>
       </tr>`;
-    }).join('') || '<tr><td colspan="4" class="empty-row">Маълумот нест</td></tr>';
+    }).join('') || `<tr><td colspan="4" class="empty-row">${escapeHtml(t('lb.empty'))}</td></tr>`;
   }
 
   const me = standings.find((p) => p.id === S.myId);
@@ -1487,7 +1891,7 @@ function showLeaderboard(standings, totalQuestions) {
       <div class="my-rank">#${me.rank || standings.indexOf(me) + 1}</div>
       <div>
         <strong>${escapeHtml(me.name)}</strong>
-        <p>${me.score} бал · ${me.correct != null ? me.correct : 0} ҷавоби дуруст аз ${total}</p>
+        <p>${escapeHtml(t('lb.myline', { p: me.score, c: me.correct != null ? me.correct : 0, t: total }))}</p>
       </div>`;
     show(card, true);
   }
@@ -1511,7 +1915,7 @@ function renderHostReport(total) {
     const dots = S.order.map((_, pos) => {
       const a = p.answers.find((x) => x.pos === pos);
       const cls = !a ? 'none' : a.ok ? 'ok' : 'bad';
-      return `<span class="qdot ${cls}" title="Саволи ${pos + 1}"></span>`;
+      return `<span class="qdot ${cls}" title="${escapeHtml(t('title.question', { n: pos + 1 }))}"></span>`;
     }).join('');
 
     return `<tr>
@@ -1519,16 +1923,16 @@ function renderHostReport(total) {
       <td class="num">${p.score}</td>
       <td class="num">${correct}/${total}</td>
       <td class="num">${acc}%</td>
-      <td class="num">${avg}с</td>
+      <td class="num">${avg}${escapeHtml(t('unit.sec'))}</td>
       <td><div class="qdots">${dots}</div></td>
     </tr>`;
-  }).join('') || '<tr><td colspan="6" class="empty-row">Донишҷӯ нест</td></tr>';
+  }).join('') || `<tr><td colspan="6" class="empty-row">${escapeHtml(t('report.empty'))}</td></tr>`;
 }
 
 function exportCsv() {
   const total = S.order.length;
-  const head = ['Ном', 'Бал', 'Дуруст', 'Ҷавобдода', 'Дақиқӣ %', 'Вақти миёна (с)'];
-  for (let i = 1; i <= total; i++) head.push('С' + i);
+  const head = [t('csv.name'), t('csv.score'), t('csv.right'), t('csv.answered'), t('csv.acc'), t('csv.avgtime')];
+  for (let i = 1; i <= total; i++) head.push(t('csv.q') + i);
 
   const lines = [head.join(';')];
   [...S.participants].sort((a, b) => b.score - a.score).forEach((p) => {
@@ -1549,7 +1953,7 @@ function exportCsv() {
   a.download = `natijaho_${S.roomCode}.csv`;
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-  toast('Ҳисобот боргирӣ шуд', 'ok');
+  toast(t('msg.csvok'), 'ok');
 }
 
 /* ------------------------------------------------------------------ */

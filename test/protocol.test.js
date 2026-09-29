@@ -4,8 +4,13 @@ const vm = require('vm');
 const path = require('path');
 
 const DIR = process.argv[2] || path.join(__dirname, "..");
-const questionsSrc = fs.readFileSync(path.join(DIR, 'questions.js'), 'utf8');
-const appSrc = fs.readFileSync(path.join(DIR, 'app.js'), 'utf8');
+const read = (f) => fs.readFileSync(path.join(DIR, f), 'utf8');
+const configSrc = read('config.js');
+const authSrc = read('crypto-auth.js');
+const i18nSrc = read('i18n.js');
+const questionsSrc = read('questions.js');
+const questionsJsSrc = read('questions-js.js');
+const appSrc = read('app.js');
 
 // ---------- DOM-и минималӣ ----------
 function makeDom() {
@@ -105,17 +110,29 @@ function makeCtx(label) {
     Math, Date, JSON, Set, Map, Array, Object, String, Number, Blob: function () {}, URL: { createObjectURL: () => '', revokeObjectURL() {} },
     alert() {}, confirm: () => true, prompt: () => '',
     navigator: {},
+    TextEncoder, TextDecoder,
+    Uint8Array, Uint32Array, DataView, ArrayBuffer, Promise, Buffer,
+    btoa: (b) => Buffer.from(b, 'binary').toString('base64'),
+    atob: (b) => Buffer.from(b, 'base64').toString('binary'),
+    // Диққат: `crypto` дар ин контекст дода НАМЕШАВАД.
+    // Бе `crypto.subtle` имзо хомӯш мемонад ва send() синхронӣ кор мекунад —
+    // ин ба мо имкон медиҳад, ки мантиқи протоколро бидуни await санҷем.
+    // Худи имзо дар test/security.test.js санҷида мешавад.
     __label: label,
     __root: root
   };
   sandbox.window = sandbox;
-  sandbox.window.location = { origin: 'http://localhost:8080', pathname: '/index.html', search: '', href: 'http://localhost:8080/index.html' };
+  sandbox.window.location = { origin: 'http://localhost:8080', pathname: '/index.html', search: '', hash: '', href: 'http://localhost:8080/index.html' };
   sandbox.window.history = { replaceState() {}, pushState() {} };
   sandbox.window.addEventListener = () => {};
   sandbox.window.scrollTo = () => {};
 
   const ctx = vm.createContext(sandbox);
+  vm.runInContext(configSrc, ctx);
+  vm.runInContext(authSrc, ctx);
+  vm.runInContext(i18nSrc, ctx);
   vm.runInContext(questionsSrc, ctx);
+  vm.runInContext(questionsJsSrc, ctx);
   vm.runInContext(appSrc, ctx);
   vm.runInContext('initUI(); checkUrlParams(); globalThis.__S = S; globalThis.__Q = cppQuestions;', ctx);
   return ctx;
@@ -134,7 +151,7 @@ const s2 = makeCtx('s2');
 
 console.log('\n--- 1. Муаллим ҳуҷра месозад ---');
 host.document.getElementById('input-host-name').value = 'Устод Алиев';
-vm.runInContext('createRoom();', host);
+vm.runInContext("$('input-host-pass').value = 'ustod-2026'; createRoom();", host);
 const room = host.__S.roomCode;
 check('коди ҳуҷра сохта шуд', /^CPP-[A-Z0-9]{4}$/.test(room), room);
 check('муаллим ба рӯйхати иштирокчиён дохил НАШУД', host.__S.participants.length === 0);
@@ -156,6 +173,10 @@ vm.runInContext(`joinRoom('Сомонӣ Муҳаммад', '${room}');`, s1);
 vm.runInContext(`joinRoom('Наргис Раҳимова', '${room}');`, s2);
 check('муаллим 2 донишҷӯро мебинад', host.__S.participants.length === 2,
   JSON.stringify(host.__S.participants.map((p) => p.name)));
+// Дар синфи калон муаллим снапшотҳоро ~700 мс ҷамъ мекунад (scheduleSnapshot),
+// то 50 вуруди ҳамзамон каналро банд накунад. Дар ин тести синхронӣ онро
+// дастӣ холӣ мекунем; худи таъхир дар test/scale.test.js санҷида мешавад.
+vm.runInContext('sendStateSnapshot();', host);
 check('донишҷӯ рӯйхатро гирифт', s1.__S.participants.length === 2);
 
 // Регрессия: ҳалқаи барқарорсозӣ набояд баъди вуруди муваффақ пӯшида шавад
