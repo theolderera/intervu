@@ -6,6 +6,7 @@
   "scripts": {
     "test": "node test/run-all.js",
     "start": "node tools/serve.js",
-    "hash": "node tools/hash-password.js"
+    "hash": "node tools/hash-password.js",
+    "verify:cpp": "node tools/verify-cpp.js"
   }
 }
