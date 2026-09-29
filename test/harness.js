@@ -100,6 +100,7 @@ function makeRunner(dir) {
   const src = {
     config: read('config.js'),
     auth: read('crypto-auth.js'),
+    uzlatin: read('uz-latin.js'),
     i18n: read('i18n.js'),
     cpp: read('questions.js'),
     js: read('questions-js.js'),
@@ -172,7 +173,7 @@ function makeRunner(dir) {
     sandbox.window.scrollTo = () => {};
 
     const ctx = vm.createContext(sandbox);
-    ['config', 'auth', 'i18n', 'cpp', 'js', 'app'].forEach((k) => vm.runInContext(src[k], ctx));
+    ['config', 'auth', 'uzlatin', 'i18n', 'cpp', 'js', 'app'].forEach((k) => vm.runInContext(src[k], ctx));
     vm.runInContext('applyI18n(); initUI(); checkUrlParams(); globalThis.__S = S;', ctx);
     return ctx;
   }

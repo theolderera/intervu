@@ -142,7 +142,9 @@ section('2. Имзои рақамии ECDSA');
 
     const bad = [];
     b.forEach((q, i) => {
-      const bi = (v) => v && typeof v === 'object' && v.tg && v.ru;
+      // Ҳар майдони матнӣ бояд ҳар се луғатро дошта бошад.
+      // (Лотини ӯзбекӣ луғат надорад — аз `uz` ҳосил мешавад.)
+      const bi = (v) => v && typeof v === 'object' && v.tg && v.ru && v.uz;
       if (!bi(q.question)) bad.push(`#${i + 1} question`);
       if (!bi(q.explanation)) bad.push(`#${i + 1} explanation`);
       if (!bi(q.category)) bad.push(`#${i + 1} category`);
@@ -151,7 +153,27 @@ section('2. Имзои рақамии ECDSA');
       if (typeof q.correct !== 'number' || q.correct < 0 || q.correct > 3) bad.push(`#${i + 1} correct`);
       if (q.code !== null && typeof q.code !== 'string') bad.push(`#${i + 1} code`);
     });
-    check(`${label}: ҳамаи майдонҳо {tg, ru} ва 4 вариант`, bad.length === 0, bad.slice(0, 5).join(', '));
+    check(`${label}: ҳамаи майдонҳо {tg, ru, uz} ва 4 вариант`, bad.length === 0, bad.slice(0, 5).join(', '));
+
+    // Варианти кодӣ/матни чопшаванда (tg === ru) бояд дар ӯзбекӣ низ айнан монад,
+    // вагарна ҷавоби дуруст бо натиҷаи барнома мувофиқ намеояд.
+    const codeOpts = [];
+    b.forEach((q) => q.options.forEach((o, j) => {
+      if (o.tg === o.ru && o.uz !== o.tg) codeOpts.push(`#${q.id} opt${j}`);
+    }));
+    check(`${label}: варианти кодӣ дар ӯзбекӣ тағйир наёфтааст`,
+      codeOpts.length === 0, codeOpts.slice(0, 5).join(', '));
+
+    // Матни ӯзбекӣ набояд ҳарфи хоси тоҷикӣ дошта бошад — ба ҷуз он ҷо ки
+    // матни айнан чопшавандаи барнома иқтибос оварда мешавад (он дар `code` ҳаст).
+    const tj = [];
+    b.forEach((q) => {
+      const txt = q.question.uz + ' ' + q.explanation.uz + ' ' + q.category.uz;
+      const code = q.code || '';
+      const words = txt.split(/[^Ѐ-ӿ]+/).filter(Boolean);
+      if (words.some((w) => /[ӣӯҷӢӮҶ]/.test(w) && !code.includes(w))) tj.push('#' + q.id);
+    });
+    check(`${label}: матни ӯзбекӣ ҳарфи тоҷикӣ надорад`, tj.length === 0, tj.slice(0, 5).join(', '));
 
     const ids = b.map((q) => q.id);
     check(`${label}: id-ҳо такрор намешаванд`, new Set(ids).size === ids.length);

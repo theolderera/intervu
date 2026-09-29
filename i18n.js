@@ -310,25 +310,205 @@ const I18N = {
     'title.kick': 'Удалить',
     'title.sound': 'Звук',
     'title.live': 'В реальном времени'
+  },
+
+  uz: {
+    'lang.name': 'Ўзбекча',
+    'brand.badge': '⚡ Дастурлашни ўрганиш платформаси',
+    'brand.subtitle': 'Бошланғич талабалар учун интерактив викторина',
+    'doc.title': 'Quiz Master — Интерактив викторина',
+
+    /* --- Кириш --- */
+    'link.title': 'Ўқитувчидан таклифнома',
+    'link.sub': 'Сиз қуйидаги хонага <strong>ўқувчи</strong> сифатида кирасиз',
+    'link.namelabel': 'Исм ва фамилиянгизни ёзинг:',
+    'link.nameph': 'Масалан: Сомоний Муҳаммад',
+    'link.namehint': 'Ўқитувчи сизни рейтинг жадвалида шу ном билан кўради.',
+    'role.pick': 'Хуш келибсиз! Ўз ролингизни танланг:',
+    'role.host.title': 'Ўқитувчи (Админ)',
+    'role.host.desc': 'Ўйин яратинг, ҳаволани ўқувчиларга юборинг ва бутун жараённи назорат қилинг.',
+    'role.student.title': 'Ўқувчи',
+    'role.student.desc': 'Хона коди ёки ўқитувчининг ҳаволаси орқали киринг ва саволларга жавоб беринг.',
+    'host.namelabel': 'Исм ва фамилиянгиз (Ўқитувчи):',
+    'host.nameph': 'Масалан: Устоз Алиев',
+    'host.passlabel': '🔒 Ўқитувчи пароли:',
+    'host.passph': 'Шахсий паролингиз',
+    'host.passhint': 'Тўғри паролсиз хона яратиб бўлмайди. Ўқувчилар паролни билмайди.',
+    'host.passwrong': 'Парол нотўғри. Қолган уринишлар: {n}',
+    'host.passempty': 'Илтимос, паролни киритинг.',
+    'host.locked': 'Жуда кўп нотўғри уриниш. {n} сониядан сўнг такрорланг.',
+    'host.passok': 'Парол тўғри — хуш келибсиз!',
+    'btn.createroom': '🚀 Ўйин хонасини яратиш',
+    'student.namelabel': 'Исм ва фамилиянгиз (Ўқувчи):',
+    'room.codelabel': 'Хона коди:',
+    'btn.join': '🎮 Ўйинга кириш',
+
+    /* --- Лобби --- */
+    'lobby.title': 'Кутиш хонаси',
+    'lobby.codefor': 'Ўқувчилар учун хона коди:',
+    'btn.copylink': '🔗 Ҳаволадан нусха олиш',
+    'btn.copied': '✓ Ҳавола нусхаланди!',
+    'lobby.linkhint': 'Ушбу ҳавола орқали кирган ҳар бир киши <strong>автоматик равишда ўқувчи бўлади</strong> — ўқитувчи ролини танлай олмайди.',
+    'conn.connecting': 'Уланмоқда...',
+    'conn.joining': 'Хонага уланмоқда...',
+    'conn.active': 'Уланиш фаол',
+    'conn.roomlive': 'Хона фаол — ўқувчилар кириши мумкин',
+    'settings.title': '⚙️ Ўйин созламалари',
+    'settings.subject': 'Фан',
+    'settings.duration': 'Ҳар бир саволга вақт',
+    'settings.count': 'Саволлар сони',
+    'settings.order': 'Саволлар тартиби',
+    'settings.next': 'Кейинги саволга ўтиш',
+    'seg.sec': 'сония',
+    'seg.all': 'Ҳаммаси',
+    'seg.sequential': 'Кетма-кет',
+    'seg.random': 'Тасодифий',
+    'seg.manual': 'Қўлда',
+    'seg.auto': 'Автоматик',
+    'participants.title': 'Қатнашчилар',
+    'lobby.empty': 'Ҳали ҳеч ким кирмади.',
+    'btn.start': '▶️ ЎЙИННИ БОШЛАШ',
+    'student.waiting': 'Ўқитувчи ўйинни бошлашини кутиб туринг...',
+
+    /* --- Викторина --- */
+    'q.counter': '{t} тадан {n}-савол',
+
+    /* --- Мослашувчанлик (фақат экрандан ўқувчи дастурлар учун) --- */
+    'a11y.welcome': 'Ўйинга кириш',
+    'a11y.options': 'Жавоб вариантлари',
+    'a11y.option': '{l} варианти: {x}',
+    'a11y.answered': 'Жавоб берди: {t} тадан {n}',
+    'admin.title': '🛡️ Бошқарув панели',
+    'stat.online': 'Онлайн',
+    'stat.answered': 'Жавоб берди',
+    'stat.correct': 'Тўғри',
+    'dist.title': 'Жавоблар тақсимоти',
+    'monitor.title': 'Ўқувчилар (реал вақтда)',
+    'th.student': 'Ўқувчи',
+    'th.answer': 'Жавоб',
+    'th.score': 'Балл',
+    'btn.revealnow': '👁️ Ҳозир очиш',
+    'btn.next': 'Кейингиси ➔',
+    'btn.tolb': '🏁 Рейтинг жадвали',
+    'btn.end': '⏹️ Якунлаш',
+    'chip.waiting': 'кутилмоқда',
+    'tag.correct': 'ТЎҒРИ ЖАВОБ',
+    'monitor.empty': 'Ҳали ўқувчи йўқ',
+    'ans.accepted': 'Жавобингиз қабул қилинди.',
+    'ans.acceptedsub': 'Жавобнинг тўғрилиги вақт тугагандан сўнг кўрсатилади — сабр қилинг.',
+    'rev.none': 'Сиз жавоб бермадингиз.',
+    'rev.good': 'Офарин! Жавоб тўғри.',
+    'rev.bad': 'Жавоб нотўғри.',
+    'rev.right': 'Тўғри жавоб: <b>{l}</b>',
+    'rev.points': '+{p} балл',
+    'rev.rank': ' · {r}-ўрин · {s} балл',
+    'rev.explain': '💡 Изоҳ:',
+
+    /* --- Рейтинг --- */
+    'lb.title': 'Рейтинг жадвали ва ғолиблар',
+    'lb.sub': 'Викторинанинг якуний натижалари',
+    'th.place': 'Ўрин',
+    'th.points': 'Баллар',
+    'th.rightans': 'Тўғри жавоблар',
+    'lb.you': 'сиз',
+    'lb.points': '{p} балл',
+    'lb.myline': '{p} балл · {t} тадан {c} та тўғри жавоб',
+    'lb.empty': 'Маълумот йўқ',
+    'report.title': '📋 Синф бўйича батафсил ҳисобот',
+    'report.hint': 'Ҳар бир нуқта — битта савол: яшил — тўғри, қизил — нотўғри, кулранг — жавоб берилмаган.',
+    'th.accuracy': 'Аниқлик',
+    'th.avgtime': 'Ўртача вақт',
+    'th.answers': 'Жавоблар',
+    'th.right': 'Тўғри',
+    'report.empty': 'Ўқувчи йўқ',
+    'btn.csv': '⬇️ Ҳисоботни юклаб олиш (CSV)',
+    'btn.newgame': '🔄 Янги ўйин',
+
+    /* --- Хабарлар --- */
+    'msg.badname': 'Илтимос, исмингизни тўғри ёзинг!',
+    'msg.badroom': 'Илтимос, хона кодини киритинг!',
+    'msg.joined': '{n} кирди',
+    'msg.kicked': '{n} чиқарилди',
+    'msg.newcode': 'Хона коди янгиланди: {c}',
+    'msg.csvok': 'Ҳисобот юклаб олинди',
+    'msg.nostudents': 'Ҳали бирорта ўқувчи кирмади. Барибир бошлайликми?',
+    'msg.endconfirm': 'Ўйинни ҳозир якунлайликми?',
+    'msg.kickconfirm': 'Ушбу ўқувчини хонадан чиқарайликми: {n}?',
+    'msg.roomfull': 'Хона тўлди — ўқувчилар сони энг юқори чегарага етди.',
+    'msg.cleared': 'Ўйин маълумотлари ушбу қурилмадан тозаланди.',
+    'msg.nolink': 'Бу ҳавола тўлиқ эмас. Ўқитувчидан янги ҳавола сўранг.',
+    'kick.title': 'Сиз хонадан чиқарилдингиз',
+    'kick.sub': 'Қайтиш учун ўқитувчи билан боғланинг.',
+    'net.lost': 'Сервер билан алоқа узилди — тикланмоқда...',
+    'net.rebuild': 'Хона қайтадан яратилмоқда...',
+    'net.issue': 'Тармоқ муаммоси — тикланмоқда...',
+    'net.restored': 'Алоқа тикланди ✓',
+    'net.notfound': 'Хона топилмади — уриниш давом этмоқда...',
+    'net.failed': 'Уланиб бўлмаяпти. Интернетни текширинг ёки саҳифани янгиланг.',
+    'net.weak': 'Ўқитувчи билан уланиш кучсиз — тикланмоқда...',
+    'net.ok': 'Уланиш тикланди',
+    'net.hostback': 'Ўқитувчи билан уланиш тикланди',
+    'net.hostlost': 'Ўқитувчи билан уланиш узилди — тикланмоқда...',
+    'net.cut': 'Алоқа узилди — тикланмоқда...',
+    'q.timeup': '⏰ <strong>Вақт тугади.</strong> Сиз жавоб бермадингиз — натижани кутиб туринг...',
+    'q.waitreveal': '⏳ Вақт тугади — ўқитувчи натижани очмоқда...',
+    'title.question': '{n}-савол',
+    'csv.name': 'Исм',
+    'csv.score': 'Балл',
+    'csv.right': 'Тўғри',
+    'csv.answered': 'Жавоб берилган',
+    'csv.acc': 'Аниқлик %',
+    'csv.avgtime': 'Ўртача вақт (с)',
+    'csv.q': 'С',
+    'unit.sec': 'с',
+    'title.kick': 'Чиқариш',
+    'title.sound': 'Овоз',
+    'title.live': 'Реал вақт ҳолати'
   }
 };
 
 const LANG_KEY = 'quiz_lang';
 
+/**
+ * Забонҳои дастрас.
+ *
+ * `uzl` (ўзбекча лотин) луғати АЛОҲИДА надорад — он аз `uz` (кирилл)
+ * худкор ҳосил мешавад (ниг. uz-latin.js). Ҳамин тавр ду алифбо ҳеҷ гоҳ
+ * аз ҳам намераванд: як тарҷума — ду навишт.
+ */
+const LANGS = ['tg', 'ru', 'uz', 'uzl'];
+const HTML_LANG = { tg: 'tg', ru: 'ru', uz: 'uz-Cyrl', uzl: 'uz-Latn' };
+
+/** Луғате, ки барои ин забон воқеан вуҷуд дорад. */
+function dictOf(lang) {
+  return I18N[lang === 'uzl' ? 'uz' : lang] || I18N.tg;
+}
+
+/** Кирилл → лотин. Агар модул набошад, матн бетағйир мемонад. */
+function uzLatin(str) {
+  try {
+    if (typeof toUzLatin === 'function') return toUzLatin(str);
+    if (typeof window !== 'undefined' && window.toUzLatin) return window.toUzLatin(str);
+    if (typeof require === 'function') return require('./uz-latin.js').toUzLatin(str);
+  } catch (e) {}
+  return str;
+}
+
 let LANG = (function () {
   try {
     const saved = localStorage.getItem(LANG_KEY);
-    if (saved === 'tg' || saved === 'ru') return saved;
+    if (LANGS.indexOf(saved) >= 0) return saved;
   } catch (e) {}
   const cfg = (typeof QUIZ_CONFIG !== 'undefined' && QUIZ_CONFIG.defaultLang) || 'tg';
-  return cfg === 'ru' ? 'ru' : 'tg';
+  return LANGS.indexOf(cfg) >= 0 ? cfg : 'tg';
 })();
 
 /** Матни калид бо забони ҷорӣ + ҷойгузории {vars}. */
 function t(key, vars) {
-  const dict = I18N[LANG] || I18N.tg;
+  const dict = dictOf(LANG);
   let s = dict[key];
   if (s === undefined) s = (I18N.tg[key] !== undefined ? I18N.tg[key] : key);
+  if (LANG === 'uzl') s = uzLatin(s);
   if (vars) {
     Object.keys(vars).forEach((k) => {
       s = s.split('{' + k + '}').join(String(vars[k]));
@@ -344,13 +524,22 @@ function t(key, vars) {
 function L(val) {
   if (val === null || val === undefined) return '';
   if (typeof val === 'string' || typeof val === 'number') return String(val);
+
+  if (LANG === 'uzl') {
+    // Вариантҳое, ки дар ҳамаи забонҳо якхелаанд, код ё матни айнан
+    // чопшавандаи барномаанд (масалан `cout` ё «Салом», ки барнома чоп
+    // мекунад). Онҳоро ба лотин гардондан ҷавобро НОДУРУСТ мекунад.
+    if (val.tg !== undefined && val.tg === val.ru) return val.tg;
+    return uzLatin(val.uz || val.tg || val.ru || '');
+  }
+
   return val[LANG] || val.tg || val.ru || '';
 }
 
 function getLang() { return LANG; }
 
 function setLang(lang, onChange) {
-  if (lang !== 'tg' && lang !== 'ru') return;
+  if (LANGS.indexOf(lang) < 0) return;
   LANG = lang;
   try { localStorage.setItem(LANG_KEY, lang); } catch (e) {}
   applyI18n();
@@ -373,7 +562,7 @@ function applyI18n(root) {
   });
 
   if (typeof document !== 'undefined') {
-    if (document.documentElement) document.documentElement.lang = LANG === 'ru' ? 'ru' : 'tg';
+    if (document.documentElement) document.documentElement.lang = HTML_LANG[LANG] || 'tg';
     document.title = t('doc.title');
     document.querySelectorAll('[data-lang-btn]').forEach((b) => {
       const on = b.getAttribute('data-lang-btn') === LANG;
@@ -390,7 +579,8 @@ if (typeof window !== 'undefined') {
   window.t = t;
   window.L = L;
   window.setLang = setLang;
+  window.LANGS = LANGS;
   window.getLang = getLang;
   window.applyI18n = applyI18n;
 }
-if (typeof module !== 'undefined') module.exports = { I18N, t, L, setLang, getLang, applyI18n };
+if (typeof module !== 'undefined') module.exports = { I18N, LANGS, t, L, setLang, getLang, applyI18n };

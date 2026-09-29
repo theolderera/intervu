@@ -1386,8 +1386,12 @@ a { color: var(--brand-ink); }
   cursor: pointer;
   transition: background var(--t-fast), color var(--t-fast);
 }
+/* Бо чор забон тугмаҳо бе ҷудокунанда ба ҳам мечаспанд. */
+.lang-switch button + button { border-left: 1px solid var(--line); }
+
 .lang-switch button:hover { color: var(--fg); background: var(--bg-2); }
 .lang-switch button.active { background: var(--brand); color: #fff; }
+.lang-switch button.active + button { border-left-color: transparent; }
 
 .sound-toggle {
   position: static;

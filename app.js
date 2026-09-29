@@ -160,7 +160,12 @@ function fmtNum(n) {
   const num = Number(n);
   if (!Number.isFinite(num)) return String(n);
   let loc = 'tg-TJ';
-  try { if (typeof getLang === 'function' && getLang() === 'ru') loc = 'ru-RU'; } catch (e) {}
+  try {
+    if (typeof getLang === 'function') {
+      const LOCALES = { ru: 'ru-RU', uz: 'uz-Cyrl-UZ', uzl: 'uz-Latn-UZ' };
+      loc = LOCALES[getLang()] || 'tg-TJ';
+    }
+  } catch (e) {}
   try {
     return num.toLocaleString(loc);
   } catch (e) {

@@ -40,28 +40,75 @@ check('тартиб дуруст аст: i18n пеш аз app',
 section('2. Калидҳои тарҷума');
 
 const tgKeys = Object.keys(I18N.tg);
-const ruKeys = Object.keys(I18N.ru);
-check('тоҷикӣ ва русӣ шумораи баробари калид доранд',
-  tgKeys.length === ruKeys.length, `tg=${tgKeys.length} ru=${ruKeys.length}`);
+// `uzl` (ўзбекча лотин) луғати худро надорад — аз `uz` ҳосил мешавад.
+const DICTS = ['ru', 'uz'];
 
-const missingRu = tgKeys.filter((k) => !I18N.ru[k]);
-check('ҳар калиди тоҷикӣ тарҷумаи русӣ дорад', missingRu.length === 0, missingRu.join(', '));
-const extraRu = ruKeys.filter((k) => !I18N.tg[k]);
-check('калиди изофии русӣ нест', extraRu.length === 0, extraRu.join(', '));
+DICTS.forEach((lang) => {
+  const keys = Object.keys(I18N[lang] || {});
+  check(`${lang}: шумораи калид бо тоҷикӣ баробар аст`,
+    keys.length === tgKeys.length, `tg=${tgKeys.length} ${lang}=${keys.length}`);
 
-const emptyVals = tgKeys.filter((k) => !String(I18N.tg[k]).trim() || !String(I18N.ru[k]).trim());
+  const missing = tgKeys.filter((k) => !I18N[lang][k]);
+  check(`${lang}: ҳар калиди тоҷикӣ тарҷума дорад`, missing.length === 0, missing.join(', '));
+
+  const extra = keys.filter((k) => !I18N.tg[k]);
+  check(`${lang}: калиди изофӣ нест`, extra.length === 0, extra.join(', '));
+});
+
+const emptyVals = tgKeys.filter((k) =>
+  !String(I18N.tg[k]).trim() || DICTS.some((l) => !String(I18N[l][k]).trim()));
 check('ҳеҷ тарҷумаи холӣ нест', emptyVals.length === 0, emptyVals.join(', '));
 
-// Тарҷумаи русӣ набояд айнан нусхаи тоҷикӣ бошад (ғайр аз чанд ҳолати табиӣ)
-// Баъзе калимаҳо дар ҳар ду забон айнан якхелаанд — ин хато нест.
-const sameAllowed = new Set(['unit.sec', 'stat.online']);
-const identical = tgKeys.filter((k) => !sameAllowed.has(k) && I18N.tg[k] === I18N.ru[k]);
-check('матни русӣ нусхаи тоҷикӣ нест', identical.length === 0, identical.join(', '));
+// Тарҷума набояд айнан нусхаи тоҷикӣ бошад.
+// Баъзе калимаҳо дар ҳамаи забонҳо айнан якхелаанд — ин хато нест.
+const sameAllowed = {
+  ru: new Set(['unit.sec', 'stat.online']),
+  uz: new Set(['unit.sec', 'stat.online', 'settings.subject', 'csv.q', 'title.sound'])
+};
+DICTS.forEach((lang) => {
+  const identical = tgKeys.filter((k) => !sameAllowed[lang].has(k) && I18N.tg[k] === I18N[lang][k]);
+  check(`${lang}: матн нусхаи тоҷикӣ нест`, identical.length === 0, identical.join(', '));
+});
 
-// Ҷойгузорҳо ({n}, {p}...) бояд дар ҳар ду забон якхела бошанд
+// Ҷойгузорҳо ({n}, {p}...) бояд дар ҳамаи забонҳо якхела бошанд
 const ph = (s) => uniq([...String(s).matchAll(/\{(\w+)\}/g)].map((m) => m[1])).sort().join(',');
-const badPh = tgKeys.filter((k) => ph(I18N.tg[k]) !== ph(I18N.ru[k]));
-check('ҷойгузорҳо ({n}, {p}) дар ҳар ду забон мувофиқанд', badPh.length === 0, badPh.join(', '));
+DICTS.forEach((lang) => {
+  const badPh = tgKeys.filter((k) => ph(I18N.tg[k]) !== ph(I18N[lang][k]));
+  check(`${lang}: ҷойгузорҳо ({n}, {p}) мувофиқанд`, badPh.length === 0, badPh.join(', '));
+});
+
+// Тегҳои HTML (<strong>, <b>) бояд дар ҳамаи забонҳо боқӣ монанд
+const tags = (s) => (String(s).match(/<\/?[a-z]+>/g) || []).sort().join('');
+DICTS.forEach((lang) => {
+  const badTags = tgKeys.filter((k) => tags(I18N.tg[k]) !== tags(I18N[lang][k]));
+  check(`${lang}: тегҳои HTML нигоҳ дошта шудаанд`, badTags.length === 0, badTags.join(', '));
+});
+
+section('2б. Лотини ӯзбекӣ (худкор аз кирилл)');
+
+const { toUzLatin } = require(path.join(DIR, 'uz-latin.js'));
+
+check('транслитератсия ў → oʻ', toUzLatin('Ўзбек') === 'Oʻzbek', toUzLatin('Ўзбек'));
+check('транслитератсия ғ → gʻ', toUzLatin('тўғри') === 'toʻgʻri', toUzLatin('тўғри'));
+check('транслитератсия қ → q, ҳ → h', toUzLatin('қаҳрамон') === 'qahramon', toUzLatin('қаҳрамон'));
+check('ҳарфи дуҳарфа дар ҲАРФИ КАЛОН', toUzLatin('БОШЛАШ') === 'BOSHLASH', toUzLatin('БОШЛАШ'));
+check('ъ → ʼ', toUzLatin('эълон') === 'eʼlon', toUzLatin('эълон'));
+check('е дар аввали калима → ye', toUzLatin('Ер') === 'Yer', toUzLatin('Ер'));
+
+// Матни ғайрикириллӣ — код, ҷойгузор, тег, эмодзи — бетағйир мемонад
+check('код бетағйир мемонад', toUzLatin('cout << x;') === 'cout << x;');
+check('ҷойгузорҳо бетағйир мемонанд',
+  toUzLatin('{n} тадан {t}') === '{n} tadan {t}', toUzLatin('{n} тадан {t}'));
+check('тегҳо ва эмодзи бетағйир мемонанд',
+  toUzLatin('⚙️ <b>Созламалар</b>') === '⚙️ <b>Sozlamalar</b>', toUzLatin('⚙️ <b>Созламалар</b>'));
+
+// Ҳар сатри ӯзбекӣ пас аз табдил бояд бе ҳарфи кириллӣ монад
+const leftover = tgKeys.filter((k) => /[Ѐ-ӿ]/.test(toUzLatin(I18N.uz[k])));
+check('пас аз табдил ҳарфи кириллӣ намемонад', leftover.length === 0, leftover.slice(0, 5).join(', '));
+
+// Ҳеҷ сатри ӯзбекӣ набояд ҳарфи хоси тоҷикӣ дошта бошад (ӣ ӯ ҷ)
+const tjLetters = tgKeys.filter((k) => /[ӣӮӯҶҷӢ]/.test(I18N.uz[k]));
+check('матни ӯзбекӣ ҳарфи хоси тоҷикӣ надорад', tjLetters.length === 0, tjLetters.join(', '));
 
 section('3. data-i18n дар HTML');
 

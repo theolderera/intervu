@@ -7,6 +7,7 @@ const DIR = process.argv[2] || path.join(__dirname, "..");
 const read = (f) => fs.readFileSync(path.join(DIR, f), 'utf8');
 const configSrc = read('config.js');
 const authSrc = read('crypto-auth.js');
+const uzLatinSrc = read('uz-latin.js');
 const i18nSrc = read('i18n.js');
 const questionsSrc = read('questions.js');
 const questionsJsSrc = read('questions-js.js');
@@ -130,6 +131,7 @@ function makeCtx(label) {
   const ctx = vm.createContext(sandbox);
   vm.runInContext(configSrc, ctx);
   vm.runInContext(authSrc, ctx);
+  vm.runInContext(uzLatinSrc, ctx);
   vm.runInContext(i18nSrc, ctx);
   vm.runInContext(questionsSrc, ctx);
   vm.runInContext(questionsJsSrc, ctx);

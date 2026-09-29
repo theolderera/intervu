@@ -206,7 +206,7 @@ const N = 50; // шумораи донишҷӯён
   check('меҳмони линк ҳатто бо пароли дуруст муаллим шуда наметавонад',
     viaLink.__S.role === 'student' && viaLink.__S.lockedToStudent === true);
 
-  section('7. Ду забон ва ду фан');
+  section('7. Чор забон ва ду фан');
 
   const bi = makeCtx('bi');
   run(bi, "$('input-host-pass').value = 'ustod-2026'; createRoom();");
@@ -225,9 +225,36 @@ const N = 50; // шумораи донишҷӯён
   check('матни русӣ бармегардад', run(bi, "t('btn.start')") === '▶️ НАЧАТЬ ИГРУ');
   check('саволи русӣ бармегардад',
     run(bi, "L(bank()[0].question)") === bi.jsQuestions[0].question.ru);
+  run(bi, "setLang('uz');");
+  check('забон ба ӯзбекии кириллӣ иваз шуд', run(bi, "getLang()") === 'uz');
+  check('матни ӯзбекӣ бармегардад', run(bi, "t('btn.start')") === '▶️ ЎЙИННИ БОШЛАШ',
+    run(bi, "t('btn.start')"));
+  check('саволи ӯзбекӣ бармегардад',
+    run(bi, "L(bank()[0].question)") === bi.jsQuestions[0].question.uz);
+
+  run(bi, "setLang('uzl');");
+  check('забон ба ӯзбекии лотинӣ иваз шуд', run(bi, "getLang()") === 'uzl');
+  const uzlBtn = run(bi, "t('btn.start')");
+  check('матни лотинӣ аз кирилл ҳосил шуд', uzlBtn === '▶️ OʻYINNI BOSHLASH', uzlBtn);
+  check('дар матни лотинӣ ҳарфи кириллӣ нест', !/[Ѐ-ӿ]/.test(uzlBtn), uzlBtn);
+  const uzlQ = run(bi, "L(bank()[0].question)");
+  check('саволи лотинӣ бе ҳарфи кириллӣ аст', !/[Ѐ-ӿ]/.test(uzlQ), uzlQ.slice(0, 60));
+
+  // МУҲИМ: вариантҳое, ки код ё матни айнан чопшаванда мебошанд,
+  // ҳатто дар лотин набояд тағйир ёбанд — вагарна ҷавоб нодуруст мешавад.
+  const codeOpt = bi.jsQuestions.find((q) => q.options.some((o) => o.tg === o.ru && /[a-zA-Z]/.test(o.tg)));
+  if (codeOpt) {
+    const idx = codeOpt.options.findIndex((o) => o.tg === o.ru && /[a-zA-Z]/.test(o.tg));
+    const rendered = run(bi, `L(jsQuestions.find(q=>q.id===${codeOpt.id}).options[${idx}])`);
+    check('варианти кодӣ дар лотин бетағйир мемонад',
+      rendered === codeOpt.options[idx].tg, rendered + ' vs ' + codeOpt.options[idx].tg);
+  }
+
   run(bi, "setLang('tg');");
   check('бозгашт ба тоҷикӣ кор мекунад',
     run(bi, "L(bank()[0].question)") === bi.jsQuestions[0].question.tg);
+  check('забони нодуруст рад мешавад',
+    (run(bi, "setLang('xx'); getLang()")) === 'tg');
   check('калиди номаълум барномаро вайрон намекунад',
     run(bi, "t('чунин.калид.нест')") === 'чунин.калид.нест');
 
