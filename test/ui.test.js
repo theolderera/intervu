@@ -182,11 +182,11 @@ check('тугмаҳои забон ёфт шуданд', iconBtns.length >= 3, i
 section('6. Тартиб ва defer-и скриптҳо дар <head>');
 /* ================================================================== */
 
-const ORDER = ['config.js', 'crypto-auth.js', 'i18n.js', 'questions.js', 'questions-js.js', 'app.js'];
+const ORDER = ['config.js', 'crypto-auth.js', 'i18n.js', 'questions.js', 'questions-js.js', 'questions-html.js', 'app.js'];
 const positions = ORDER.map((f) => head.indexOf('src="' + f + '"'));
-check('ҳамаи шаш скрипт дар <head> ҳастанд',
+check('ҳамаи скриптҳо дар <head> ҳастанд',
   positions.every((p) => p >= 0), ORDER.filter((_, i) => positions[i] < 0).join(', '));
-check('тартиб: config → crypto-auth → i18n → questions → questions-js → app',
+check('тартиб: config → crypto-auth → i18n → questions → questions-js → questions-html → app',
   positions.every((p, i) => i === 0 || (p > positions[i - 1] && p >= 0)), positions.join(' < '));
 const noDefer = ORDER.filter((f) => {
   const m = head.match(new RegExp('<script[^>]*src="' + f.replace('.', '\\.') + '"[^>]*>'));

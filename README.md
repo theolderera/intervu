@@ -48,6 +48,7 @@ npm run verify:cpp   # ҷавобҳои C++-ро бо компилятори в�
 |---|---|---|
 | **C++** | 100 | `CPP-XXXX` |
 | **JavaScript** | 55 | `JS-XXXX` |
+| **HTML/CSS** | 70 | `HTML-XXXX` |
 
 Мавзӯъҳои C++: `cout`/`cin`, навъҳои маълумот, тағйирёбандаҳо ва `const`,
 амалҳои арифметикӣ (`%`, тақсими бутун), муқоиса ва мантиқ, `if`/`else`/`switch`,
@@ -202,6 +203,7 @@ i18n.js           тарҷумаҳо (тоҷикӣ / русӣ / ўзбекча)
 uz-latin.js       ўзбекча: кирилл → лотин (худкор)
 questions.js      100 саволи C++
 questions-js.js   55 саволи JavaScript
+questions-html.js 70 саволи HTML/CSS
 app.js            мантиқи бозӣ ва шабака
 style.css         тарроҳӣ
 tools/            hash-password.js, serve.js, verify-cpp.js

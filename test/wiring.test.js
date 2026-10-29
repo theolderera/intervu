@@ -25,11 +25,11 @@ const matches = (src, re) => uniq([...src.matchAll(re)].map((m) => m[1]));
 
 section('1. Скриптҳо ва сохтори саҳифа');
 
-['config.js', 'crypto-auth.js', 'i18n.js', 'questions.js', 'questions-js.js', 'app.js']
+['config.js', 'crypto-auth.js', 'i18n.js', 'questions.js', 'questions-js.js', 'questions-html.js', 'app.js']
   .forEach((f) => check(`${f} ба index.html пайваст аст`, html.includes(`src="${f}"`)));
 
 check('ҳамаи файлҳои скрипт воқеан мавҷуданд',
-  ['config.js', 'crypto-auth.js', 'i18n.js', 'questions.js', 'questions-js.js', 'app.js', 'style.css']
+  ['config.js', 'crypto-auth.js', 'i18n.js', 'questions.js', 'questions-js.js', 'questions-html.js', 'app.js', 'style.css']
     .every((f) => fs.existsSync(path.join(DIR, f))));
 check('style.css пайваст аст', html.includes('style.css'));
 check('тартиб дуруст аст: config пеш аз app',

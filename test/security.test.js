@@ -134,7 +134,8 @@ section('2. Имзои рақамии ECDSA');
   qctx.window = qctx;
   vm.runInContext(read('questions.js'), qctx);
   vm.runInContext(read('questions-js.js'), qctx);
-  const banks = { 'C++': qctx.cppQuestions, JavaScript: qctx.jsQuestions };
+  vm.runInContext(read('questions-html.js'), qctx);
+  const banks = { 'C++': qctx.cppQuestions, JavaScript: qctx.jsQuestions, 'HTML/CSS': qctx.htmlQuestions };
 
   Object.keys(banks).forEach((label) => {
     const b = banks[label];

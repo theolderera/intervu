@@ -83,14 +83,29 @@ const LS_KEY = 'cpp_quiz_event';
 
 const SUBJECTS = {
   cpp: { label: 'C++', prefix: 'CPP' },
-  js: { label: 'JavaScript', prefix: 'JS' }
+  js: { label: 'JavaScript', prefix: 'JS' },
+  html: { label: 'HTML/CSS', prefix: 'HTML' }
 };
 
 /** Бонки саволҳои фанни ҷорӣ (ё фанни додашуда). */
 function bank(subject) {
   const s = subject || S.subject || 'cpp';
   if (s === 'js') return (typeof jsQuestions !== 'undefined' ? jsQuestions : []);
+  if (s === 'html') return (typeof htmlQuestions !== 'undefined' ? htmlQuestions : []);
   return (typeof cppQuestions !== 'undefined' ? cppQuestions : []);
+}
+
+/**
+ * Фанро аз рӯи префикси коди ҳуҷра муайян мекунад (CPP-…, JS-…, HTML-…).
+ * Донишҷӯ аз рӯи ҳамин бонки дурустро мекушояд — бинобар ин ҳамаи префиксҳо
+ * бояд санҷида шаванд, на танҳо ду адад.
+ */
+function subjectFromCode(code) {
+  const c = String(code || '').toUpperCase();
+  for (const key of Object.keys(SUBJECTS)) {
+    if (c.indexOf(SUBJECTS[key].prefix + '-') === 0) return key;
+  }
+  return 'cpp';
 }
 
 /** Саволи рақами `i` аз бонки фанни ҷорӣ. */
@@ -712,8 +727,17 @@ function authorize(msg) {
 
   if (S.role === 'student') {
     if (!S.hostPubKey) {
+      if (!msg.pub) {
+        // Паёми беимзо аз муаллим. Агар линк калидро «мехкӯб» карда бошад
+        // (#k=...), ин паём қалбакист — рад мекунем. Вагарна муаллим крипто
+        // надорад (контексти ғайрибехатар, мас. http дар LAN) ва чизе барои
+        // тафтиш нест — паёмро қабул мекунем, то донишҷӯ беохир дар
+        // «Пайвастшавӣ...» намонад.
+        return !S.hostPubB64;
+      }
+      // Калиди дар линк мехкӯбшуда бояд мувофиқ ояд — вагарна импостор аст.
+      if (S.hostPubB64 && msg.pub !== S.hostPubB64) return false;
       // TOFU: калиди аввалинро қабул мекунем, баъд дигар иваз намешавад.
-      if (!msg.pub) return false;
       return QuizAuth.importPublicKey(msg.pub).then((key) => {
         if (!key) return false;
         return QuizAuth.verifyMessage(key, msg).then((ok) => {
@@ -909,7 +933,7 @@ function initSegments() {
       if (after && S.settings[key] !== prev) after();
     });
   };
-  bind('seg-subject', 'subject', (v) => (v === 'js' ? 'js' : 'cpp'), () => {
+  bind('seg-subject', 'subject', (v) => (SUBJECTS[v] ? v : 'cpp'), () => {
     // Фан дар лобби иваз шуд — коди ҳуҷра ва линк низ бояд нав шаванд,
     // вагарна донишҷӯён аз рӯи префикси кӯҳна бонки нодуруст мекушоянд.
     if (S.role !== 'host' || S.phase !== 'lobby') return;
@@ -938,7 +962,7 @@ function checkUrlParams() {
   S.lockedToStudent = true;
   S.role = 'student';
   S.roomCode = room.trim().toUpperCase();
-  S.subject = /^JS-/i.test(S.roomCode) ? 'js' : 'cpp';
+  S.subject = subjectFromCode(S.roomCode);
 
   // Калиди кушоди муаллим дар қисми `#` аст — он ба ҳеҷ сервер намеравад.
   const hash = (window.location.hash || '').replace(/^#/, '');
@@ -1127,7 +1151,7 @@ function joinRoom(rawName, rawRoom) {
   S.role = 'student';
   S.userName = name;
   S.roomCode = room;
-  S.subject = /^JS-/i.test(room) ? 'js' : 'cpp';
+  S.subject = subjectFromCode(room);
   S.phase = 'lobby';
 
   const key = 'cppquiz_id_' + room;
